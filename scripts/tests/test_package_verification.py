@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from ivd_research.evidence import build_draft_evidence_card
+from ivd_research.evidence import build_draft_evidence_card, export_evidence_card_files
 from ivd_research.jsonl import append_jsonl, write_json
 from ivd_research.models import Material
 from ivd_research.package import FORMAL_SCENARIOS, build_standard_delivery, verify_package
@@ -70,7 +70,9 @@ def _write_single_material_and_card(task_dir: Path) -> None:
         material.model_dump(mode="json"),
         "EC-000001",
     )
-    append_jsonl(task_dir / "data" / "evidence_cards.jsonl", card.model_dump(mode="json"))
+    card_payload = card.model_dump(mode="json")
+    append_jsonl(task_dir / "data" / "evidence_cards.jsonl", card_payload)
+    export_evidence_card_files(task_dir, card_payload)
 
 
 def _mark_formal_scenarios(task_dir: Path, status: str = "no_results") -> None:
@@ -92,6 +94,7 @@ def test_verify_package_keeps_incomplete_scope_as_not_business_ready(tmp_path: P
     result = verify_package(task_dir)
 
     assert result["delivery_artifacts_ready"] is True
+    assert (task_dir / "交付目录" / "02_证据卡" / "EC-000001.md").exists()
     assert result["business_ready"] is False
     assert "task_info" in result["missing_confirmations"]
     assert result["final_review_ready"] is False

@@ -119,22 +119,34 @@ def _cn_business_query(state: Any) -> str:
 
 
 def _en_business_query(state: Any) -> str:
-    return _append_terms(
+    sample_type = str(_confirmation(state, "sample_type", "") or "").strip()
+    intended_use = str(_confirmation(state, "intended_use", "") or "").strip()
+    english_terms = [
         _english_query(state),
-        _confirmation(state, "sample_type", ""),
+        sample_type if sample_type.isascii() else "",
         _confirmation(state, "english_method_keywords", ""),
-        _confirmation(state, "intended_use", ""),
+        intended_use if intended_use.isascii() else "",
+    ]
+    return _append_terms(
+        *english_terms,
     )
+
+
+def _english_primary_query(state: Any) -> str:
+    return _english_query(state)
 
 
 def _literature_date_range(state: Any) -> Any:
     return _confirmation(state, "literature_date_range", "")
 
 
-def _literature_retmax(state: Any) -> int:
+def _literature_retmax(state: Any) -> int | str:
+    value = _confirmation(state, "literature_retmax", 100)
+    if isinstance(value, str) and value.strip().lower() in {"all", "全部", "full", "unlimited"}:
+        return "all"
     try:
-        value = int(_confirmation(state, "literature_retmax", 100))
-        return min(max(value, 10), 100)
+        parsed = int(value)
+        return min(max(parsed, 10), 200)
     except (TypeError, ValueError):
         return 100
 
@@ -277,7 +289,7 @@ def scenario_query_plans(state: Any) -> dict[str, list[ScenarioQueryPlan]]:
         ],
         "pubmed_literature": [
             ScenarioQueryPlan(
-                query=_en_business_query(state),
+                query=_english_primary_query(state),
                 params={
                     "query_role": "pubmed_keywords",
                     "retmax": literature_retmax,
@@ -287,7 +299,7 @@ def scenario_query_plans(state: Any) -> dict[str, list[ScenarioQueryPlan]]:
         ],
         "pmc_fulltext": [
             ScenarioQueryPlan(
-                query=_en_business_query(state),
+                query=_english_primary_query(state),
                 params={
                     "query_role": "pmc_keywords",
                     "retmax": literature_retmax,

@@ -51,6 +51,7 @@ REQUIRED_BUSINESS_CONFIRMATIONS = [
 DELIVERY_DIR_NAME = "交付目录"
 STANDARD_REPORT_NAME = "00_立项调研综合报告.html"
 STANDARD_REVIEW_NAME = "01_证据审阅与补证任务表.xlsx"
+EVIDENCE_CARD_DIR_NAME = "02_证据卡"
 TRACE_DIR_NAME = "90_系统追溯数据"
 TRACE_TOP_LEVELS = [
     "task.json",
@@ -139,6 +140,7 @@ def standard_delivery_paths(task_dir: Path) -> dict[str, Path]:
         "delivery_dir": delivery_dir,
         "report": delivery_dir / STANDARD_REPORT_NAME,
         "review": delivery_dir / STANDARD_REVIEW_NAME,
+        "evidence_cards": delivery_dir / EVIDENCE_CARD_DIR_NAME,
         "trace": delivery_dir / TRACE_DIR_NAME,
     }
 
@@ -191,7 +193,7 @@ def _write_delivery_readme(task_dir: Path, delivery_dir: Path) -> None:
                 f"课题：{topic}",
                 "",
                 "本目录用于系统复核、调试和审计，不作为研发业务人员默认阅读入口。",
-                "业务默认阅读入口为交付目录根部的 HTML 综合报告和 Excel 审阅与补证任务表。",
+                "业务默认阅读入口为交付目录根部的 HTML 综合报告、Excel 审阅与补证任务表和 02_证据卡。",
                 "",
                 "主要内容包括：",
                 "- 01_原始材料数据_data：材料、证据卡、报告版本等 JSONL 数据。",
@@ -239,6 +241,17 @@ def build_standard_delivery(task_dir: Path) -> dict:
         review_source = task_dir / "review" / "evidence_review_v001.xlsx"
     review_ok = _copy_file_if_exists(review_source, paths["review"])
 
+    evidence_card_dir = paths["evidence_cards"]
+    if evidence_card_dir.exists():
+        shutil.rmtree(evidence_card_dir)
+    evidence_card_source = task_dir / "evidence_cards" / "markdown"
+    evidence_card_dir.mkdir(parents=True, exist_ok=True)
+    evidence_card_count = 0
+    if evidence_card_source.exists():
+        for source in sorted(evidence_card_source.glob("*.md")):
+            if _copy_file_if_exists(source, evidence_card_dir / source.name):
+                evidence_card_count += 1
+
     trace_dir = paths["trace"]
     if trace_dir.exists():
         shutil.rmtree(trace_dir)
@@ -263,8 +276,10 @@ def build_standard_delivery(task_dir: Path) -> dict:
         "standard_outputs": {
             STANDARD_REPORT_NAME: report_ok,
             STANDARD_REVIEW_NAME: review_ok,
+            EVIDENCE_CARD_DIR_NAME: evidence_card_count > 0,
             TRACE_DIR_NAME: trace_dir.exists() and trace_dir.is_dir(),
         },
+        "evidence_card_count": evidence_card_count,
         "top_level_entries": top_level_entries,
         "topic_safe_name": safe_topic(
             json.loads((task_dir / "task.json").read_text(encoding="utf-8")).get("topic", "")

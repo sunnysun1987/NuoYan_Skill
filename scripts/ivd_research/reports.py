@@ -174,6 +174,37 @@ def _clean_summary_text(text: str) -> str:
     return result[:900]
 
 
+def _structured_abstract_items(raw: dict[str, Any]) -> list[dict[str, str]]:
+    sections = raw.get("abstract_sections") or []
+    items: list[dict[str, str]] = []
+    if isinstance(sections, list):
+        for section in sections:
+            if not isinstance(section, dict):
+                continue
+            label = str(section.get("label") or "").strip() or "Abstract"
+            text = " ".join(str(section.get("text") or "").split())
+            if text:
+                items.append({"label": label, "text": text})
+    if not items:
+        abstract = " ".join(str(raw.get("abstract") or raw.get("summary") or "").split())
+        if abstract:
+            items.append({"label": "Abstract", "text": abstract})
+    return items
+
+
+def _structured_abstract_text(raw: dict[str, Any], *, max_chars: int = 1800) -> str:
+    lines = [f"{item['label']}: {item['text']}" for item in _structured_abstract_items(raw)]
+    keywords = raw.get("keywords") or []
+    if isinstance(keywords, list):
+        keyword_text = "；".join(str(item).strip() for item in keywords if str(item).strip())
+    else:
+        keyword_text = str(keywords or "").strip()
+    if keyword_text:
+        lines.append(f"Keywords: {keyword_text}")
+    text = "\n".join(lines).strip()
+    return text[:max_chars]
+
+
 def _source_record_limit(materials: list[dict]) -> list[dict]:
     grouped: dict[str, int] = {}
     limited = []
@@ -264,9 +295,14 @@ def normalize_materials(materials: list[dict], evidence_cards: list[dict] | None
         row["evidence_summaries"] = [
             card.get("summary", "") for card in material_cards if card.get("summary")
         ]
-        row["structured_summary"] = _clean_summary_text(
-            _first_raw(raw, "abstract", "summary", "content")
-            or " ".join(row.get("evidence_summaries") or [])
+        row["abstract_sections_display"] = _structured_abstract_items(raw)
+        row["structured_abstract"] = _structured_abstract_text(raw)
+        row["structured_summary"] = (
+            row["structured_abstract"]
+            or _clean_summary_text(
+                _first_raw(raw, "abstract", "summary", "content")
+                or " ".join(row.get("evidence_summaries") or [])
+            )
         )
         row["status_text"] = " ".join(
             str(value or "")
@@ -320,7 +356,7 @@ def display_key_facts(items: list[str], summary: str) -> list[str]:
             continue
         seen.add(fact)
         facts.append(fact)
-    return facts[:1]
+    return facts[:6]
 
 
 def normalize_evidence_cards(evidence_cards: list[dict]) -> list[dict]:
@@ -588,6 +624,8 @@ def build_business_decision(
 ) -> dict[str, Any]:
     """Build business-facing decision text, not development diagnostics."""
     literature_count = len(literature_materials)
+    literature_signals = build_literature_signal_summary(literature_materials)
+    marker = literature_signals["marker"]
     missing_domains = []
     if not regulatory_materials:
         missing_domains.append("法规/指导原则")
@@ -605,7 +643,7 @@ def build_business_decision(
         )
     elif literature_count:
         conclusion = (
-            "当前证据支持 AD 血液 p-Tau181 方向继续进入立项复核。"
+            f"当前证据支持 AD 血液 {marker} 方向继续进入立项复核。"
             "建议按“辅助诊断/风险评估/转诊分层”定位推进，先完成注册证字段、专利全文和性能方案复核后再进入正式立项会。"
         )
     else:
@@ -614,12 +652,15 @@ def build_business_decision(
         )
 
     basis = [
-        f"已采集文献材料 {literature_count} 条，覆盖 PubMed、PMC、OpenAlex、中国指南和国际对标资料，可支撑临床价值、目标人群和检测场景复核。",
-        "p-Tau181 与 AD 病理、认知下降风险和血液标志物临床应用相关，文献链条可支撑研发继续做方法学和临床性能论证。",
+        (
+            f"已采集文献材料 {literature_count} 条，覆盖 PubMed、PMC、OpenAlex、中国指南和国际对标资料，可支撑临床价值、目标人群和检测场景复核。"
+            f"其中含摘要 {literature_signals['with_abstract']} 条、结构化 Abstract {literature_signals['with_structured']} 条、可解析文本 {literature_signals['extracted']} 份。"
+        ),
+        f"{marker} 与 AD 病理、认知下降风险和血液标志物临床应用相关，文献链条可支撑研发继续做方法学和临床性能论证。",
     ]
     if competitor_materials:
         basis.append(
-            f"已导入 {len(competitor_materials)} 条竞品/同类注册线索，其中包含 p-Tau181 化学发光法、血浆样本、II 类注册证等信息，可作为国内注册参照的起点。"
+            f"已导入 {len(competitor_materials)} 条竞品/同类注册线索，可用于识别同类标志物、化学发光/免疫检测平台、样本类型和注册参照。"
         )
     if regulatory_materials:
         basis.append(
@@ -651,7 +692,7 @@ def build_business_decision(
         cannot_conclude.extend(
             [
                 "不能直接认定 NMPA 官方数据库字段已经完整核验；注册证编号、注册人、有效期、适用样本和说明书仍需人工复核。",
-                "不能直接形成自由实施结论；p-Tau181 抗体表位、校准品、算法、试剂盒组合和平台绑定专利需要专利全文审阅。",
+                f"不能直接形成自由实施结论；{marker} 抗体表位、校准品、算法、试剂盒组合和平台绑定专利需要专利全文审阅。",
                 "不能直接确定最终性能指标；参考区间、cut-off、灰区比例、临床灵敏度/特异性和不同平台一致性需要研发与医学共同确认。",
                 "自动证据卡仍未人工复核，不能直接作为最终立项会结论。",
             ]
@@ -700,6 +741,105 @@ def _material_title_join(materials: list[dict], limit: int = 3) -> str:
     return "；".join(titles) if titles else "暂无材料"
 
 
+def _contains_any(text: str, terms: list[str]) -> bool:
+    lowered = text.lower()
+    return any(term.lower() in lowered for term in terms)
+
+
+def _count_topic(materials: list[dict], terms: list[str]) -> int:
+    count = 0
+    for item in materials:
+        raw = item.get("raw_fields") or {}
+        text = " ".join(
+            str(value or "")
+            for value in [
+                item.get("title", ""),
+                raw.get("abstract", ""),
+                raw.get("full_visible_text", ""),
+                raw.get("keywords", ""),
+                raw.get("mesh_terms", ""),
+            ]
+        )
+        if _contains_any(text, terms):
+            count += 1
+    return count
+
+
+def _sample_titles(materials: list[dict], terms: list[str], limit: int = 4) -> str:
+    titles = []
+    for item in materials:
+        raw = item.get("raw_fields") or {}
+        text = f"{item.get('title', '')} {raw.get('abstract', '')} {raw.get('keywords', '')}"
+        if _contains_any(text, terms):
+            title = clean_display_title(item.get("title", ""))
+            if title and title not in titles:
+                titles.append(title)
+        if len(titles) >= limit:
+            break
+    return "；".join(titles) if titles else "暂无直接题名线索"
+
+
+def _target_marker(materials: list[dict]) -> str:
+    text = " ".join(item.get("title", "") for item in materials[:200]).lower()
+    if "217" in text:
+        return "p-Tau217"
+    if "181" in text:
+        return "p-Tau181"
+    if "aβ" in text or "abeta" in text or "amyloid beta" in text:
+        return "Aβ"
+    return "目标标志物"
+
+
+def build_literature_signal_summary(literature_materials: list[dict]) -> dict[str, Any]:
+    total = len(literature_materials)
+    pubmed = sum(1 for item in literature_materials if item.get("source_scenario") == "pubmed_literature")
+    pmc = sum(1 for item in literature_materials if item.get("source_scenario") == "pmc_fulltext")
+    extracted = sum(1 for item in literature_materials if item.get("extracted_text_path"))
+    with_abstract = sum(1 for item in literature_materials if (item.get("raw_fields") or {}).get("abstract"))
+    with_structured = sum(1 for item in literature_materials if (item.get("raw_fields") or {}).get("abstract_sections"))
+    marker = _target_marker(literature_materials)
+    topics = {
+        "blood": _count_topic(literature_materials, ["blood", "plasma", "serum", "血浆", "血清", "血液"]),
+        "csf": _count_topic(literature_materials, ["CSF", "cerebrospinal fluid", "脑脊液"]),
+        "mci": _count_topic(literature_materials, ["MCI", "mild cognitive impairment", "轻度认知"]),
+        "diagnosis": _count_topic(literature_materials, ["diagnosis", "diagnostic", "诊断", "differential"]),
+        "screening": _count_topic(literature_materials, ["screening", "primary care", "triage", "筛查", "转诊"]),
+        "risk": _count_topic(literature_materials, ["risk", "prediction", "predict", "prognosis", "progression", "风险", "预测", "进展"]),
+        "amyloid_reference": _count_topic(literature_materials, ["amyloid PET", "Aβ", "Abeta", "amyloid pathology", "淀粉样"]),
+        "tau_reference": _count_topic(literature_materials, ["tau PET", "tau pathology", "神经原纤维", "tau pathology"]),
+        "csf_reference": _count_topic(literature_materials, ["CSF biomarker", "cerebrospinal fluid biomarker", "脑脊液标志物"]),
+        "auc": _count_topic(literature_materials, ["AUC", "area under", "sensitivity", "specificity", "灵敏度", "特异性"]),
+        "immunoassay": _count_topic(literature_materials, ["immunoassay", "ELISA", "Simoa", "chemiluminescence", "ECL", "免疫", "化学发光"]),
+    }
+    return {
+        "marker": marker,
+        "total": total,
+        "pubmed": pubmed,
+        "pmc": pmc,
+        "extracted": extracted,
+        "with_abstract": with_abstract,
+        "with_structured": with_structured,
+        "topics": topics,
+        "examples": {
+            "blood": _sample_titles(literature_materials, ["blood", "plasma", "serum"], 4),
+            "diagnosis": _sample_titles(literature_materials, ["diagnosis", "diagnostic"], 4),
+            "risk": _sample_titles(literature_materials, ["risk", "prediction", "progression"], 4),
+            "reference": _sample_titles(literature_materials, ["amyloid PET", "tau PET", "CSF", "pathology"], 4),
+            "technology": _sample_titles(literature_materials, ["immunoassay", "ELISA", "Simoa", "chemiluminescence", "ECL"], 4),
+        },
+    }
+
+
+def _signal_sentence(signals: dict[str, Any]) -> str:
+    topics = signals.get("topics", {})
+    return (
+        f"文献证据共 {signals.get('total', 0)} 条，其中 PubMed {signals.get('pubmed', 0)} 条、PMC/开放全文 {signals.get('pmc', 0)} 条；"
+        f"已解析文本 {signals.get('extracted', 0)} 份，含摘要 {signals.get('with_abstract', 0)} 条，含结构化 Abstract {signals.get('with_structured', 0)} 条。"
+        f"血液/血浆/血清相关 {topics.get('blood', 0)} 条，CSF 相关 {topics.get('csf', 0)} 条，MCI/早期认知障碍相关 {topics.get('mci', 0)} 条，"
+        f"诊断/鉴别诊断相关 {topics.get('diagnosis', 0)} 条，筛查/分诊相关 {topics.get('screening', 0)} 条，风险预测/进展相关 {topics.get('risk', 0)} 条。"
+    )
+
+
 def build_project_analysis_sections(
     *,
     literature_materials: list[dict],
@@ -709,6 +849,11 @@ def build_project_analysis_sections(
     patent_materials: list[dict],
     materials: list[dict],
 ) -> list[dict[str, Any]]:
+    signals = build_literature_signal_summary(literature_materials)
+    marker = signals["marker"]
+    topics = signals["topics"]
+    examples = signals["examples"]
+    signal_text = _signal_sentence(signals)
     literature_titles = _material_title_join(literature_materials)
     competitor_titles = _material_title_join(competitor_materials)
     regulatory_titles = _material_title_join(regulatory_materials)
@@ -719,114 +864,159 @@ def build_project_analysis_sections(
             "id": "analysis-1",
             "title": "临床意义",
             "analysis": (
-                f"已形成 {len(literature_materials)} 条文献和指南材料。现有资料支持血液 p-Tau181 与 AD 病理、认知下降风险和辅助诊断场景相关，"
-                "可作为继续开展方法学开发和临床性能验证的依据。"
+                f"{signal_text} 综合题名、摘要和全文线索看，{marker} 不是单纯研究性概念，证据集中在 AD 病理识别、MCI/早期人群分层、"
+                "血液标志物替代或前置 PET/CSF 检查、以及临床试验/专科诊疗路径中的辅助判断。"
             ),
-            "evidence": literature_titles,
+            "evidence": f"{examples['blood']}；{examples['diagnosis']}",
             "gap": "需要按人群、疾病阶段、参照方法和检测平台进一步提取 AUC、灵敏度、特异性、cut-off 和灰区比例。",
         },
         {
             "id": "analysis-2",
             "title": "临床应用定位",
-            "analysis": "首版产品定位宜控制在辅助诊断、风险评估、转诊分层和研究用途，不宜表述为普通人群独立筛查或单项确诊工具。",
-            "evidence": literature_titles,
+            "analysis": (
+                f"诊断/鉴别诊断相关文献 {topics.get('diagnosis', 0)} 条，筛查/分诊相关 {topics.get('screening', 0)} 条，风险预测/进展相关 {topics.get('risk', 0)} 条。"
+                f"因此 {marker} 更适合作为 AD 辅助诊断、Aβ/Tau 病理阳性预测、认知下降风险分层和临床研究入组辅助，不宜单独声明为确诊工具。"
+            ),
+            "evidence": f"诊断线索：{examples['diagnosis']}；风险线索：{examples['risk']}",
             "gap": "需要医学人员确认说明书适用人群、排除条件、阴阳性解释和联合检查建议。",
         },
         {
             "id": "analysis-3",
             "title": "目标使用场景",
-            "analysis": "更适合记忆门诊、神经内科、老年医学科和研究队列场景，用于有认知下降或疑似 AD 人群的辅助判断。",
-            "evidence": literature_titles,
+            "analysis": (
+                f"文献中血液样本相关 {topics.get('blood', 0)} 条、MCI/早期认知障碍相关 {topics.get('mci', 0)} 条，提示首要场景应放在记忆门诊、神经内科、老年医学科、"
+                "认知障碍专病门诊和临床研究队列，而不是泛人群无症状筛查。"
+            ),
+            "evidence": examples["blood"],
             "gap": "需要补充真实临床路径、检测频次、报告解释和复测策略。",
         },
         {
             "id": "analysis-4",
             "title": "目标人群",
-            "analysis": "现有证据更集中于有症状人群、MCI、AD 连续谱和专科场景；全血样本仍需确认可行性和证据充分性。",
+            "analysis": (
+                f"现有文献更集中于疑似 AD、MCI、主观认知下降、AD 连续谱及专科就诊人群。血液相关线索 {topics.get('blood', 0)} 条，"
+                f"CSF 相关线索 {topics.get('csf', 0)} 条，说明血液 {marker} 可作为低创入口，但 CSF/PET 仍是重要参照。"
+            ),
             "evidence": literature_titles,
             "gap": "需要按血浆、血清、全血分别形成样本适用性和干扰因素评估。",
         },
         {
             "id": "analysis-5",
             "title": "诊疗路径",
-            "analysis": "血液标志物可作为 PET/CSF 之前的低创、可及性更高的前置评估工具，但结果需要结合临床信息解释。",
-            "evidence": literature_titles,
+            "analysis": (
+                f"文献中 amyloid PET/Aβ 病理参照相关 {topics.get('amyloid_reference', 0)} 条，tau PET/Tau 病理参照相关 {topics.get('tau_reference', 0)} 条，"
+                f"CSF 参照相关 {topics.get('csf_reference', 0)} 条。{marker} 的合理位置是 PET/CSF 前的前置分层和转诊辅助，阳性/阴性解释应结合临床量表、影像和病史。"
+            ),
+            "evidence": examples["reference"],
             "gap": "需要确认与量表、影像、CSF、Aβ/tau 组合检测的推荐顺序。",
         },
         {
             "id": "analysis-6",
             "title": "金标准与参照方法",
-            "analysis": "文献多以 amyloid PET、tau PET、CSF 标志物或临床诊断作为参照，应在研发方案中明确主要参照方法。",
+            "analysis": (
+                f"当前证据显示，{marker} 的评价参照不应只使用临床诊断标签。研发方案应优先定义 amyloid PET/Aβ 病理、tau PET/Tau 病理、CSF Aβ42/40 与 p-tau 等参照方法，"
+                "并区分病理阳性预测、临床诊断辅助和疾病进展预测三类终点。"
+            ),
             "evidence": literature_titles,
             "gap": "需要定义临床试验/性能评价中采用的参照标准和一致性评价指标。",
         },
         {
             "id": "analysis-7",
             "title": "指南与共识",
-            "analysis": "已导入中国 AD 体液标志物指南和国际血液标志物相关指南线索，可支撑应用场景和解释边界。",
+            "analysis": (
+                f"文献池中指南、共识、临床实践建议和血液标志物框架性文献应优先用于确定 {marker} 的临床解释边界。"
+                "自动检索结果显示该方向已有较多国际讨论，但中文指南/全文来源若未命中，不能直接替代本土注册和临床使用语境。"
+            ),
             "evidence": literature_titles,
             "gap": "需要补齐中文期刊原文、指南推荐等级和引用证据级别。",
         },
         {
             "id": "analysis-8",
             "title": "专家和组织意见",
-            "analysis": "当前主要来自指南/组织文件和公开对标资料，尚未包含企业内部专家访谈。",
+            "analysis": (
+                "现阶段专家和组织意见主要间接来自指南、共识、协会实践建议和高被引综述。"
+                f"这些材料可用于界定 {marker} 的适用场景、报告解释边界和与 PET/CSF 的关系，但不能替代企业内部 KOL 访谈和本地临床路径确认。"
+            ),
             "evidence": literature_titles,
             "gap": "需要补充临床专家、注册人员和研发负责人的确认意见。",
         },
         {
             "id": "analysis-9",
             "title": "市场准入与收费",
-            "analysis": "当前证据包尚未覆盖收费、医保、招采和渠道价格，不能形成市场准入结论。",
+            "analysis": (
+                f"文献证据可以证明 {marker} 的临床需求和技术关注度，但不能直接证明市场准入可行性。"
+                "收费编码、医保支付、医院检验项目立项、套餐组合和患者自费接受度需要另行采集真实市场材料。"
+            ),
             "evidence": "暂无直接材料",
             "gap": "需要补充收费项目、地区准入、采购渠道和竞品价格信息。",
         },
         {
             "id": "analysis-10",
             "title": "市场定位",
-            "analysis": "产品定位应围绕 AD 血液标志物组合、化学发光平台和专科辅助诊断展开，避免与确诊工具直接等同。",
+            "analysis": (
+                f"从文献主题看，{marker} 更适合作为 AD 血液标志物组合或单项高价值标志物进入专科辅助诊断、病理阳性预测和研究入组场景。"
+                "商业定位上应强调低创、可及、可前置分层，而不是替代 PET/CSF 或单项确诊。"
+            ),
             "evidence": competitor_titles,
             "gap": "需要补充目标医院层级、科室入口、检测套餐组合和商业化路径。",
         },
         {
             "id": "analysis-11",
             "title": "竞争格局",
-            "analysis": f"已导入 {len(competitor_materials)} 条竞品/同类注册线索，包含 p-Tau181 化学发光法和相邻 AD 血液标志物组合参照。",
+            "analysis": (
+                f"已导入 {len(competitor_materials)} 条竞品/同类注册线索。若 NMPA 采集未完成，当前竞争格局只能从文献、公开产品和相邻标志物推断，"
+                f"重点关注 {marker}、其他 p-tau 标志物、Aβ42/40、NfL 等组合方案以及化学发光/免疫检测平台差异。"
+            ),
             "evidence": competitor_titles,
             "gap": "NMPA 官方数据库字段、注册证状态、说明书和有效期需要人工核验。",
         },
         {
             "id": "analysis-12",
             "title": "出口与注册",
-            "analysis": f"已导入 {len(regulatory_materials)} 条法规/注册材料，可支持中国注册路径初步判断。",
+            "analysis": (
+                f"已导入 {len(regulatory_materials)} 条法规/注册材料。对 {marker} 这类 AD 血液标志物项目，注册论证不能只看文献有效性，"
+                "还要把预期用途、样本类型、临床评价路径、同品种比对可能性和性能验证要求拆开确认。"
+            ),
             "evidence": regulatory_titles,
             "gap": "需要确认分类编码、临床评价路径、同品种比对可能性和注册申报资料清单。",
         },
         {
             "id": "analysis-13",
             "title": "技术可行性",
-            "analysis": "化学发光平台与免疫检测路线具备业务可行性线索，但 p-Tau181 低丰度检测对灵敏度、抗体特异性和样本处理要求较高。",
-            "evidence": "；".join([literature_titles, competitor_titles]),
+            "analysis": (
+                f"免疫检测/ELISA/Simoa/化学发光/ECL 等平台相关文献 {topics.get('immunoassay', 0)} 条，AUC/灵敏度/特异性等性能评价相关 {topics.get('auc', 0)} 条。"
+                f"{marker} 在血液中丰度低、前分析变量敏感，对抗体特异性、校准体系、批间一致性、基质效应和样本稳定性要求较高；技术可行性应从研究平台向可注册 IVD 平台做桥接验证。"
+            ),
+            "evidence": "；".join([examples["technology"], competitor_titles]),
             "gap": "需要研发输出 LoD/LoQ、线性、精密度、hook、交叉反应、干扰和稳定性验证方案。",
         },
         {
             "id": "analysis-14",
             "title": "参考物质",
-            "analysis": "当前未形成参考物质、校准品和质控品可获得性的充分证据。",
+            "analysis": (
+                f"{marker} 的立项风险不只在临床价值，还在可溯源校准体系、质控品和平台一致性。"
+                "若无明确参考物质/校准品证据，后续性能转化可能出现批间一致性、不同平台可比性和 cut-off 固化困难。"
+            ),
             "evidence": standard_titles,
             "gap": "需要确认抗原/抗体、校准品、质控品、溯源体系和批间一致性方案。",
         },
         {
             "id": "analysis-15",
             "title": "安全要求",
-            "analysis": "IVD 产品安全风险主要来自假阳性、假阴性和误读导致的临床决策偏差，需在说明书和报告解释中控制。",
+            "analysis": (
+                f"{marker} 检测的安全风险主要来自假阳性、假阴性、灰区结果和过度解释。"
+                "对于认知障碍和 AD 风险场景，报告必须强调辅助判断属性，避免患者或医生将单项结果理解为确诊或排除诊断。"
+            ),
             "evidence": regulatory_titles,
             "gap": "需要形成风险分析、适用限制、警示语和结果解释模板。",
         },
         {
             "id": "analysis-16",
             "title": "原材料可获得性",
-            "analysis": "当前证据包尚未覆盖关键原材料供应商、抗体表位和校准体系可获得性。",
+            "analysis": (
+                f"{marker} 方法学转化依赖高特异性抗体、稳定抗原/校准品、质控材料和低背景检测体系。"
+                "如果无法确认抗体表位、交叉反应、供应稳定性和校准体系，临床文献再充分也不能直接转化为可注册产品。"
+            ),
             "evidence": patent_titles,
             "gap": "需要补充关键抗体、抗原、磁珠/发光底物、校准品和质控品供应风险。",
         },
@@ -851,11 +1041,12 @@ def build_business_action_rows(
 ) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
     if not competitor_materials:
+        marker = _target_marker(literature_materials)
         rows.append(
             {
                 "priority": "P0",
                 "owner": "注册 / 产品",
-                "action": "补查 NMPA 同类产品，确认是否已有 AD 血液 p-tau181/p-tau 类 IVD 注册路径或相近产品。",
+                "action": f"补查 NMPA 同类产品，确认是否已有 AD 血液 {marker}/p-tau 类 IVD 注册路径或相近产品。",
                 "acceptance": "形成同类产品清单，至少包含注册证编号、注册人、方法学、样本类型、预期用途和有效期。",
             }
         )
@@ -882,7 +1073,7 @@ def build_business_action_rows(
             {
                 "priority": "P1",
                 "owner": "研发 / 知识产权",
-                "action": "补查 p-tau181、血液检测、免疫检测平台和 AD 辅助诊断相关专利。",
+                "action": f"补查 {marker}、血液检测、免疫检测平台和 AD 辅助诊断相关专利。",
                 "acceptance": "形成高相关专利清单，并标注可能阻碍、可绕开点和需法务复核项。",
             }
         )
@@ -891,7 +1082,7 @@ def build_business_action_rows(
             {
                 "priority": "P1",
                 "owner": "医学 / 研发",
-                "action": "复核已采集文献，筛出真正支持 p-tau181 血液标志物 IVD 立项的核心证据。",
+                "action": "复核已采集文献，筛出真正支持目标血液标志物 IVD 立项的核心证据。",
                 "acceptance": "每条纳入证据明确对应临床意义、目标人群、诊疗路径、性能指标或技术可行性。",
             }
         )

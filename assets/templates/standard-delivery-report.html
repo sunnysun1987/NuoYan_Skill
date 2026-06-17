@@ -210,7 +210,22 @@
             </div>
             <p>{{ card.summary }}</p>
             {% if card.display_facts %}
-            <p class="single-fact">{{ card.display_facts|join("；") }}</p>
+            <ul class="fact-list">
+              {% for fact in card.display_facts %}
+              <li>{{ fact }}</li>
+              {% endfor %}
+            </ul>
+            {% endif %}
+            {% if source.abstract_sections_display %}
+            <div class="abstract-block">
+              <h4>结构化 Abstract</h4>
+              {% for item in source.abstract_sections_display %}
+              <p><b>{{ item.label }}</b>：{{ item.text }}</p>
+              {% endfor %}
+              {% if source.raw_fields.get("keywords") %}
+              <p><b>Keywords</b>：{{ source.raw_fields.get("keywords")|join("；") if source.raw_fields.get("keywords") is iterable and source.raw_fields.get("keywords") is not string else source.raw_fields.get("keywords") }}</p>
+              {% endif %}
+            </div>
             {% endif %}
           </article>
           {% endfor %}
@@ -269,7 +284,19 @@
               {% if material.doi %}<div><b>DOI</b><span>{{ material.doi }}</span></div>{% endif %}
               <div><b>全文状态</b><span>{{ material.download_status_zh }}</span></div>
             </div>
+            {% if material.abstract_sections_display %}
+            <div class="abstract-block">
+              <h4>结构化 Abstract</h4>
+              {% for item in material.abstract_sections_display %}
+              <p><b>{{ item.label }}</b>：{{ item.text }}</p>
+              {% endfor %}
+              {% if material.raw_fields.get("keywords") %}
+              <p><b>Keywords</b>：{{ material.raw_fields.get("keywords")|join("；") if material.raw_fields.get("keywords") is iterable and material.raw_fields.get("keywords") is not string else material.raw_fields.get("keywords") }}</p>
+              {% endif %}
+            </div>
+            {% else %}
             <p>{{ material.structured_summary or "已采集题录线索，需复核后形成可引用结论。" }}</p>
+            {% endif %}
           </article>
           {% endfor %}
         {% else %}

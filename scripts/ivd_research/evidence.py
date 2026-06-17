@@ -110,6 +110,36 @@ def _field_text(raw: dict[str, Any], *keys: str) -> str:
     return ""
 
 
+def _structured_abstract_lines(raw: dict[str, Any]) -> list[str]:
+    sections = raw.get("abstract_sections") or []
+    lines: list[str] = []
+    if isinstance(sections, list):
+        for section in sections:
+            if not isinstance(section, dict):
+                continue
+            label = str(section.get("label") or "").strip() or "Abstract"
+            text = " ".join(str(section.get("text") or "").split())
+            if text:
+                lines.append(f"Abstract[{label}]：{text}")
+    elif isinstance(sections, dict):
+        for label, value in sections.items():
+            text = " ".join(str(value or "").split())
+            if text:
+                lines.append(f"Abstract[{label or 'Abstract'}]：{text}")
+    if not lines:
+        abstract = " ".join(str(raw.get("abstract") or raw.get("summary") or "").split())
+        if abstract:
+            lines.append(f"Abstract：{abstract}")
+    keywords = raw.get("keywords") or []
+    if isinstance(keywords, list):
+        keyword_text = "；".join(str(item).strip() for item in keywords if str(item).strip())
+    else:
+        keyword_text = str(keywords or "").strip()
+    if keyword_text:
+        lines.append(f"Keywords：{keyword_text}")
+    return lines
+
+
 def _append_fact(facts: list[str], label: str, value: str) -> None:
     if value:
         facts.append(f"{label}：{value}")
@@ -138,7 +168,7 @@ def _draft_review_facts(material: dict[str, Any], excerpt: str) -> list[str]:
         _append_fact(facts, "出版日期", _field_text(raw, "publication_date", "publish_date"))
         _append_fact(facts, "全文状态", _field_text(raw, "fulltext_status", "xml_status"))
         _append_fact(facts, "PDF状态", _field_text(raw, "pdf_status"))
-        _append_fact(facts, "摘要", _field_text(raw, "abstract", "summary"))
+        facts.extend(_structured_abstract_lines(raw))
     elif material_type == "patent":
         _append_fact(facts, "公开号", _field_text(raw, "publication_number", "patent_number"))
         _append_fact(facts, "基本信息", _field_text(raw, "basic_info_text"))
@@ -333,6 +363,12 @@ def export_evidence_card_files(task_dir: Path, card: dict[str, Any]) -> None:
         excerpt_lines.append(
             f"- {excerpt.get('text', '')}\n  - 位置：{excerpt.get('location', '')}\n  - 文件：{excerpt.get('source_path', '')}"
         )
+    abstract_lines = [
+        fact
+        for fact in (card.get("key_facts") or card.get("facts") or [])
+        if str(fact).startswith("Abstract")
+        or str(fact).startswith("Keywords")
+    ]
     markdown = "\n".join(
         [
             f"# {card.get('title', card_id)}",
@@ -352,6 +388,9 @@ def export_evidence_card_files(task_dir: Path, card: dict[str, Any]) -> None:
             "",
             "## 关键事实",
             "\n".join(f"- {fact}" for fact in (card.get("key_facts") or card.get("facts") or [])),
+            "",
+            "## 结构化 Abstract",
+            "\n".join(f"- {line}" for line in abstract_lines) if abstract_lines else "未解析到结构化 Abstract。",
             "",
             "## 关键摘录",
             "\n".join(excerpt_lines) if excerpt_lines else "暂无关键摘录。",

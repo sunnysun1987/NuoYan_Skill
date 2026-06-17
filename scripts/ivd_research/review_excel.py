@@ -55,6 +55,7 @@ LITERATURE_HEADERS = [
     "期刊",
     "发表日期",
     "摘要状态",
+    "结构化Abstract",
     "全文状态",
     "PDF状态",
     "来源链接",
@@ -267,6 +268,7 @@ def export_review(task_dir: Path) -> dict:
         if material_type == "literature":
             raw = material.get("raw_fields") or {}
             abstract_status = "有摘要" if raw.get("abstract") else "无摘要/未解析"
+            structured_abstract = _structured_abstract_text(raw)
             fulltext_status = raw.get("fulltext_status") or material.get("extracted_text_status", "")
             pdf_status = raw.get("pdf_status") or material.get("download_status", "")
             literature_review.append(
@@ -281,6 +283,7 @@ def export_review(task_dir: Path) -> dict:
                     raw.get("journal", "") or raw.get("journal_iso", ""),
                     raw.get("publication_date", ""),
                     abstract_status,
+                    structured_abstract,
                     fulltext_status,
                     pdf_status,
                     material.get("source_url", ""),
@@ -320,6 +323,31 @@ def _literature_gap_action(raw: dict[str, Any], material: dict[str, Any]) -> str
     if not raw.get("pmcid") and material.get("source_scenario") == "pubmed_literature":
         actions.append("判断是否存在开放全文")
     return "；".join(actions) if actions else "无明确补证动作，待人工确认采用价值"
+
+
+def _structured_abstract_text(raw: dict[str, Any]) -> str:
+    sections = raw.get("abstract_sections") or []
+    lines: list[str] = []
+    if isinstance(sections, list):
+        for section in sections:
+            if not isinstance(section, dict):
+                continue
+            label = str(section.get("label") or "").strip() or "Abstract"
+            text = " ".join(str(section.get("text") or "").split())
+            if text:
+                lines.append(f"{label}: {text}")
+    if not lines:
+        abstract = " ".join(str(raw.get("abstract") or "").split())
+        if abstract:
+            lines.append(abstract)
+    keywords = raw.get("keywords") or []
+    if isinstance(keywords, list):
+        keyword_text = "；".join(str(item).strip() for item in keywords if str(item).strip())
+    else:
+        keyword_text = str(keywords or "").strip()
+    if keyword_text:
+        lines.append(f"Keywords: {keyword_text}")
+    return "\n".join(lines)
 
 
 def import_review(task_dir: Path, workbook_path: Path) -> dict:

@@ -2,6 +2,7 @@ import hashlib
 import re
 import subprocess
 import time
+import random
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
@@ -20,6 +21,12 @@ PMC_BASE = "https://pmc.ncbi.nlm.nih.gov"
 USER_AGENT = "NuoYan-Skill/2.0 (IVD feasibility evidence collection; contact local user)"
 REQUEST_DELAY_SECONDS = 0.35
 DEFAULT_RETMAX = 20
+MAX_RETMAX = 10000
+DEFAULT_SIMILAR_RETMAX = 5
+EFETCH_BATCH_SIZE = 100
+NCBI_RETRY_ATTEMPTS = 4
+DEFAULT_SIMILAR_ARTICLE_SOURCE_LIMIT = 50
+DEFAULT_PDF_DOWNLOAD_LIMIT = 100
 
 
 def pubmed_adapter():
@@ -34,7 +41,13 @@ def collect_pubmed(task_id, task_dir, params):
     query = str(params.get("query", "")).strip()
     material_id = str(params.get("material_id", "MAT-000000"))
     task_dir = Path(task_dir)
-    retmax = _safe_int(params.get("retmax"), DEFAULT_RETMAX)
+    retmax_value = params.get("retmax")
+    similar_retmax = _safe_int(params.get("similar_retmax"), DEFAULT_SIMILAR_RETMAX)
+    similar_source_limit = _safe_int(
+        params.get("similar_article_source_limit"),
+        DEFAULT_SIMILAR_ARTICLE_SOURCE_LIMIT,
+    )
+    pdf_download_limit = _safe_int(params.get("pdf_download_limit"), DEFAULT_PDF_DOWNLOAD_LIMIT)
     query = _with_pubmed_date_filter(query, params.get("date_range"))
     if not query:
         return ScenarioResult(
@@ -45,7 +58,7 @@ def collect_pubmed(task_id, task_dir, params):
 
     client = NCBIClient()
     try:
-        search = client.esearch("pubmed", query, retmax=retmax)
+        search = client.esearch("pubmed", query, retmax=retmax_value)
         pmids = search.get("ids", [])
         search_xml_path = _save_raw_text(
             task_dir,
@@ -64,17 +77,19 @@ def collect_pubmed(task_id, task_dir, params):
         )
 
     try:
-        fetch_xml = client.efetch("pubmed", pmids, rettype="", retmode="xml")
-        fetch_xml_path = _save_raw_text(
+        articles, fetch_xml_paths = _fetch_pubmed_article_batches(
+            client,
             task_dir,
-            "pubmed",
-            f"{material_id}_pubmed_efetch.xml",
-            fetch_xml,
+            db="pubmed",
+            ids=pmids,
+            material_id=material_id,
+            raw_subdir="pubmed",
+            filename_stem="pubmed_efetch",
+            parser=parse_pubmed_articles,
         )
     except NCBIHTTPError as exc:
         return _ncbi_error_result("PubMed 详情获取", exc)
 
-    articles = parse_pubmed_articles(fetch_xml)
     if not articles:
         return ScenarioResult(
             status="parse_failed",
@@ -83,11 +98,41 @@ def collect_pubmed(task_id, task_dir, params):
         )
 
     materials: list[Material] = []
+    seen_pmids: set[str] = set()
     for index, article in enumerate(articles, start=1):
         current_material_id = material_id if len(articles) == 1 else f"{material_id}-{index:03d}"
+        seen_pmids.add(str(article.get("pmid") or ""))
+        if index <= similar_source_limit:
+            related_articles, related_raw_path = _related_pubmed_articles(
+                client,
+                task_dir,
+                pmid=str(article.get("pmid") or ""),
+                material_id=current_material_id,
+                retmax=similar_retmax,
+                seen_pmids=seen_pmids,
+            )
+            similar_policy = "collected"
+        else:
+            related_articles, related_raw_path = [], ""
+            similar_policy = f"skipped_after_top_{similar_source_limit}"
+        article["similar_articles"] = related_articles
+        article["similar_articles_raw_path"] = related_raw_path
+        if index <= pdf_download_limit:
+            pdf_status, download_files, pdf_error = download_pmc_pdf(
+                task_dir,
+                pmcid=str(article.get("pmcid") or ""),
+                material_id=current_material_id,
+                title=str(article.get("title") or ""),
+            )
+        else:
+            pdf_status, download_files, pdf_error = (
+                "deferred",
+                [],
+                f"批量全量召回时仅对前 {pdf_download_limit} 条尝试 PDF 下载；本条保留题录/摘要和全文线索，后续可按需补下载。",
+            )
         text_path = _save_literature_text(
             task_dir,
-            f"{current_material_id}_pubmed_{article.get('pmid') or index}.txt",
+            material_filename(current_material_id, article.get("title", ""), "pubmed", ".txt"),
             format_pubmed_text(article),
         )
         material = Material(
@@ -102,9 +147,10 @@ def collect_pubmed(task_id, task_dir, params):
                 "scenario_id": "pubmed_literature",
                 "query": query,
                 "pubmed_esearch_raw": search_xml_path,
-                "pubmed_efetch_raw": fetch_xml_path,
+                "pubmed_efetch_raw": fetch_xml_paths[index - 1] if index <= len(fetch_xml_paths) else "",
+                "pubmed_efetch_raw_batches": fetch_xml_paths,
                 "list_index": index,
-                "retmax": retmax,
+                "retmax": search.get("retmax", retmax_value),
             },
             collection_time=now_iso(),
             adapter_id="pubmed_literature",
@@ -114,14 +160,21 @@ def collect_pubmed(task_id, task_dir, params):
                 "source_database": "PubMed",
                 "query": query,
                 "search_count": search.get("count", ""),
-                "search_retmax": retmax,
+                "search_retmax": search.get("retmax", retmax_value),
+                "similar_article_count": len(related_articles),
+                "similar_articles_raw_path": related_raw_path,
+                "similar_articles_policy": similar_policy,
                 "fulltext_status": "pmcid_available" if article.get("pmcid") else "metadata_only",
-                "pdf_status": "not_attempted",
+                "pdf_status": pdf_status,
+                "pdf_error": pdf_error,
             },
-            download_status="not_attempted",
+            download_status=pdf_status,
+            download_files=download_files,
             extracted_text_status="completed" if text_path else "not_attempted",
             extracted_text_path=text_path,
-            content_snapshot_path=fetch_xml_path,
+            content_snapshot_path=fetch_xml_paths[index - 1] if index <= len(fetch_xml_paths) else "",
+            failure_type=FailureType.DOWNLOAD_FAILED if pdf_status == "download_failed" else None,
+            failure_reason=pdf_error if pdf_status == "download_failed" else "",
             possible_duplicate_keys=_duplicate_keys(article),
         )
         materials.append(material)
@@ -137,7 +190,8 @@ def collect_pmc(task_id, task_dir, params):
     query = str(params.get("query", "")).strip()
     material_id = str(params.get("material_id", "MAT-000000"))
     task_dir = Path(task_dir)
-    retmax = _safe_int(params.get("retmax"), DEFAULT_RETMAX)
+    retmax_value = params.get("retmax")
+    pdf_download_limit = _safe_int(params.get("pdf_download_limit"), DEFAULT_PDF_DOWNLOAD_LIMIT)
     query = _with_pubmed_date_filter(query, params.get("date_range"))
     if not query:
         return ScenarioResult(
@@ -148,7 +202,7 @@ def collect_pmc(task_id, task_dir, params):
 
     client = NCBIClient()
     try:
-        search = client.esearch("pmc", query, retmax=retmax)
+        search = client.esearch("pmc", query, retmax=retmax_value)
         pmc_numeric_ids = search.get("ids", [])
         search_xml_path = _save_raw_text(
             task_dir,
@@ -167,17 +221,19 @@ def collect_pmc(task_id, task_dir, params):
         )
 
     try:
-        fetch_xml = client.efetch("pmc", pmc_numeric_ids, rettype="", retmode="xml")
-        fetch_xml_path = _save_raw_text(
+        articles, fetch_xml_paths = _fetch_pubmed_article_batches(
+            client,
             task_dir,
-            "pmc",
-            f"{material_id}_pmc_efetch.xml",
-            fetch_xml,
+            db="pmc",
+            ids=pmc_numeric_ids,
+            material_id=material_id,
+            raw_subdir="pmc",
+            filename_stem="pmc_efetch",
+            parser=parse_pmc_articles,
         )
     except NCBIHTTPError as exc:
         return _ncbi_error_result("PMC 全文 XML 获取", exc)
 
-    articles = parse_pmc_articles(fetch_xml)
     if not articles:
         return ScenarioResult(
             status="parse_failed",
@@ -193,19 +249,27 @@ def collect_pmc(task_id, task_dir, params):
         xml_article_path = _save_raw_text(
             task_dir,
             "pmc",
-            f"{current_material_id}_{pmcid}_article.xml",
+            material_filename(current_material_id, article.get("title", "") or pmcid, "PMC全文XML", ".xml"),
             article.get("article_xml", ""),
         )
         text_path = _save_literature_text(
             task_dir,
-            f"{current_material_id}_{pmcid}_fulltext.txt",
+            material_filename(current_material_id, article.get("title", "") or pmcid, "PMC全文", ".txt"),
             format_pmc_text(article),
         )
-        pdf_status, download_files, pdf_error = download_pmc_pdf(
-            task_dir,
-            pmcid=pmcid,
-            material_id=current_material_id,
-        )
+        if index <= pdf_download_limit:
+            pdf_status, download_files, pdf_error = download_pmc_pdf(
+                task_dir,
+                pmcid=pmcid,
+                material_id=current_material_id,
+                title=article.get("title", ""),
+            )
+        else:
+            pdf_status, download_files, pdf_error = (
+                "deferred",
+                [],
+                f"批量全量召回时仅对前 {pdf_download_limit} 条尝试 PDF 下载；本条已保存 PMC XML 和全文抽取文本，后续可按需补下载。",
+            )
         if pdf_error:
             collection_errors.append(
                 {
@@ -226,10 +290,11 @@ def collect_pmc(task_id, task_dir, params):
                 "scenario_id": "pmc_fulltext",
                 "query": query,
                 "pmc_esearch_raw": search_xml_path,
-                "pmc_efetch_raw": fetch_xml_path,
+                "pmc_efetch_raw": fetch_xml_paths[index - 1] if index <= len(fetch_xml_paths) else "",
+                "pmc_efetch_raw_batches": fetch_xml_paths,
                 "pmc_article_xml": xml_article_path,
                 "list_index": index,
-                "retmax": retmax,
+                "retmax": search.get("retmax", retmax_value),
             },
             collection_time=now_iso(),
             adapter_id="pmc_fulltext",
@@ -239,7 +304,7 @@ def collect_pmc(task_id, task_dir, params):
                 "source_database": "PMC",
                 "query": query,
                 "search_count": search.get("count", ""),
-                "search_retmax": retmax,
+                "search_retmax": search.get("retmax", retmax_value),
                 "xml_status": "completed" if xml_article_path else "parse_failed",
                 "fulltext_status": "completed" if text_path else "parse_failed",
                 "pdf_status": pdf_status,
@@ -279,7 +344,29 @@ class NCBIClient:
         self.timeout = timeout
         self._last_request = 0.0
 
-    def esearch(self, db: str, term: str, *, retmax: int) -> dict[str, Any]:
+    def esearch(self, db: str, term: str, *, retmax: Any) -> dict[str, Any]:
+        requested_all = isinstance(retmax, str) and retmax.strip().lower() in {"all", "全部", "full", "unlimited"}
+        if requested_all:
+            count_xml = self._esearch_xml(db, term, retmax=0)
+            count_root = ElementTree.fromstring(count_xml)
+            count = _safe_int(count_root.findtext(".//Count"), DEFAULT_RETMAX)
+            effective_retmax = min(count, MAX_RETMAX)
+            xml_text = self._esearch_xml(db, term, retmax=effective_retmax)
+        else:
+            effective_retmax = _safe_int(retmax, DEFAULT_RETMAX)
+            xml_text = self._esearch_xml(db, term, retmax=effective_retmax)
+        root = ElementTree.fromstring(xml_text)
+        ids = [node.text or "" for node in root.findall(".//IdList/Id") if node.text]
+        count_node = root.find(".//Count")
+        return {
+            "ids": ids,
+            "count": count_node.text if count_node is not None else "",
+            "retmax": effective_retmax,
+            "retmax_policy": "all_count_capped" if requested_all and effective_retmax >= MAX_RETMAX else ("all_count" if requested_all else "fixed"),
+            "xml": xml_text,
+        }
+
+    def _esearch_xml(self, db: str, term: str, *, retmax: int) -> str:
         params = {
             "db": db,
             "term": term,
@@ -287,11 +374,7 @@ class NCBIClient:
             "retmax": str(retmax),
             "sort": "relevance",
         }
-        xml_text = self._get("esearch.fcgi", params, step=f"{db} esearch")
-        root = ElementTree.fromstring(xml_text)
-        ids = [node.text or "" for node in root.findall(".//IdList/Id") if node.text]
-        count_node = root.find(".//Count")
-        return {"ids": ids, "count": count_node.text if count_node is not None else "", "xml": xml_text}
+        return self._get("esearch.fcgi", params, step=f"{db} esearch")
 
     def efetch(self, db: str, ids: list[str], *, rettype: str, retmode: str) -> str:
         if not ids:
@@ -305,30 +388,65 @@ class NCBIClient:
             params["rettype"] = rettype
         return self._get("efetch.fcgi", params, step=f"{db} efetch")
 
+    def elink(self, dbfrom: str, db: str, ids: list[str], *, linkname: str = "", retmax: int = 5) -> dict[str, Any]:
+        if not ids:
+            return {"ids": [], "xml": ""}
+        params = {
+            "dbfrom": dbfrom,
+            "db": db,
+            "id": ",".join(ids),
+            "retmode": "xml",
+            "retmax": str(retmax),
+        }
+        if linkname:
+            params["linkname"] = linkname
+        xml_text = self._get("elink.fcgi", params, step=f"{dbfrom} elink")
+        root = ElementTree.fromstring(xml_text)
+        linked_ids: list[str] = []
+        for node in root.findall(".//LinkSetDb/Link/Id"):
+            value = (node.text or "").strip()
+            if value and value not in linked_ids:
+                linked_ids.append(value)
+        return {"ids": linked_ids[:retmax], "xml": xml_text}
+
     def _get(self, endpoint: str, params: dict[str, str], *, step: str) -> str:
-        elapsed = time.monotonic() - self._last_request
-        if elapsed < REQUEST_DELAY_SECONDS:
-            time.sleep(REQUEST_DELAY_SECONDS - elapsed)
         url = f"{NCBI_BASE}/{endpoint}?{urlencode(params)}"
-        try:
-            with httpx.Client(timeout=self.timeout, follow_redirects=True) as client:
-                response = client.get(url, headers={"User-Agent": USER_AGENT})
-        except Exception as exc:
+        last_error: Exception | None = None
+        for attempt in range(1, NCBI_RETRY_ATTEMPTS + 1):
+            elapsed = time.monotonic() - self._last_request
+            if elapsed < REQUEST_DELAY_SECONDS:
+                time.sleep(REQUEST_DELAY_SECONDS - elapsed)
             try:
-                return self._get_with_curl(url)
-            except Exception as curl_exc:
-                raise NCBIHTTPError(
-                    step,
-                    message=f"{exc}；curl fallback failed: {curl_exc}",
-                    url=url,
-                ) from exc
-        finally:
-            self._last_request = time.monotonic()
-        if response.status_code == 429:
-            raise NCBIHTTPError(step, status_code=429, message="NCBI 请求触发限流（HTTP 429）", url=url)
-        if response.status_code >= 400:
-            raise NCBIHTTPError(step, status_code=response.status_code, message=response.text[:500], url=url)
-        return response.text
+                with httpx.Client(timeout=self.timeout, follow_redirects=True) as client:
+                    response = client.get(url, headers={"User-Agent": USER_AGENT})
+            except Exception as exc:
+                last_error = exc
+                try:
+                    return self._get_with_curl(url)
+                except Exception as curl_exc:
+                    last_error = curl_exc
+                    if attempt >= NCBI_RETRY_ATTEMPTS:
+                        raise NCBIHTTPError(
+                            step,
+                            message=f"{exc}；curl fallback failed: {curl_exc}",
+                            url=url,
+                        ) from exc
+                    time.sleep(min(2 ** attempt, 8) + random.uniform(0.0, 0.5))
+                    continue
+            finally:
+                self._last_request = time.monotonic()
+            if response.status_code == 429:
+                last_error = NCBIHTTPError(step, status_code=429, message="NCBI 请求触发限流（HTTP 429）", url=url)
+                if attempt >= NCBI_RETRY_ATTEMPTS:
+                    raise last_error
+                time.sleep(min(2 ** attempt, 8) + random.uniform(0.0, 0.5))
+                continue
+            if response.status_code >= 400:
+                raise NCBIHTTPError(step, status_code=response.status_code, message=response.text[:500], url=url)
+            return response.text
+        if isinstance(last_error, NCBIHTTPError):
+            raise last_error
+        raise NCBIHTTPError(step, message="NCBI 请求失败", url=url)
 
     def _get_with_curl(self, url: str) -> str:
         completed = subprocess.run(
@@ -357,7 +475,8 @@ def parse_pubmed_articles(xml_text: str) -> list[dict[str, Any]]:
     for article_node in root.findall(".//PubmedArticle"):
         pmid = _node_text(article_node.find(".//MedlineCitation/PMID"))
         title = _joined_node_text(article_node.find(".//ArticleTitle"))
-        abstract = _abstract_text(article_node)
+        abstract_sections = _abstract_sections(article_node)
+        abstract = _format_abstract_sections(abstract_sections)
         journal = _node_text(article_node.find(".//Journal/Title"))
         journal_iso = _node_text(article_node.find(".//Journal/ISOAbbreviation"))
         pub_date = _pubmed_date(article_node)
@@ -376,6 +495,11 @@ def parse_pubmed_articles(xml_text: str) -> list[dict[str, Any]]:
             for mesh in article_node.findall(".//MeshHeading")
             if _joined_node_text(mesh.find(".//DescriptorName"))
         ]
+        keywords = [
+            _joined_node_text(keyword)
+            for keyword in article_node.findall(".//KeywordList/Keyword")
+            if _joined_node_text(keyword)
+        ]
         articles.append(
             {
                 "pmid": pmid,
@@ -387,6 +511,8 @@ def parse_pubmed_articles(xml_text: str) -> list[dict[str, Any]]:
                 "journal_iso": journal_iso,
                 "publication_date": pub_date,
                 "abstract": abstract,
+                "abstract_sections": abstract_sections,
+                "keywords": keywords,
                 "mesh_terms": mesh_terms,
                 "pubmed_url": f"{PUBMED_BASE}/{pmid}/" if pmid else "",
                 "pmc_url": f"{PMC_BASE}/articles/{pmcid}/" if pmcid else "",
@@ -402,10 +528,13 @@ def parse_pmc_articles(xml_text: str) -> list[dict[str, Any]]:
     for article_node in article_nodes:
         ids = _article_ids(article_node)
         pmcid = normalize_pmcid(ids.get("pmc", ""))
+        if not pmcid:
+            pmcid = normalize_pmcid(ids.get("pmcid", ""))
         pmid = ids.get("pmid", "")
         doi = ids.get("doi", "")
         title = _joined_node_text(_first(article_node, ".//front/article-meta/title-group/article-title"))
-        abstract = _joined_node_text(_first(article_node, ".//front/article-meta/abstract"))
+        abstract_sections = _pmc_abstract_sections(article_node)
+        abstract = _format_abstract_sections(abstract_sections)
         body_text = _joined_node_text(_first(article_node, ".//body"))
         journal = _joined_node_text(_first(article_node, ".//front/journal-meta/journal-title-group/journal-title"))
         pub_date, issue_date = _pmc_dates(article_node)
@@ -423,6 +552,8 @@ def parse_pmc_articles(xml_text: str) -> list[dict[str, Any]]:
                 "issue_date": issue_date,
                 "date_source": "PMC epub/ppub 优先；collection 仅作为刊期",
                 "abstract": abstract,
+                "abstract_sections": abstract_sections,
+                "keywords": _pmc_keywords(article_node),
                 "full_visible_text": body_text[:20000],
                 "full_text_length": len(body_text),
                 "pmc_url": f"{PMC_BASE}/articles/{pmcid}/" if pmcid else "",
@@ -433,7 +564,13 @@ def parse_pmc_articles(xml_text: str) -> list[dict[str, Any]]:
     return articles
 
 
-def download_pmc_pdf(task_dir: Path, *, pmcid: str, material_id: str) -> tuple[str, list[DownloadFile], str]:
+def download_pmc_pdf(
+    task_dir: Path,
+    *,
+    pmcid: str,
+    material_id: str,
+    title: str = "",
+) -> tuple[str, list[DownloadFile], str]:
     url = pmc_pdf_url(pmcid)
     if not url:
         return "not_attempted", [], "缺少 PMCID，无法构造 PMC PDF 链接。"
@@ -455,11 +592,11 @@ def download_pmc_pdf(task_dir: Path, *, pmcid: str, material_id: str) -> tuple[s
 
     download_dir = task_dir / "downloads" / "literature" / "pmc_pdf"
     download_dir.mkdir(parents=True, exist_ok=True)
-    filename = f"{material_id}_{pmcid}.pdf"
+    filename = material_filename(material_id, title or pmcid, "PMC", ".pdf")
     target = download_dir / filename
     target.write_bytes(content)
     file_record = DownloadFile(
-        original_filename=f"{pmcid}.pdf",
+        original_filename=f"{title or pmcid}.pdf",
         stored_filename=filename,
         relative_path=str(target.relative_to(task_dir)),
         source_url=url,
@@ -487,6 +624,22 @@ def normalize_pmcid(value: str) -> str:
 
 
 def format_pubmed_text(article: dict[str, Any]) -> str:
+    similar_lines = []
+    for item in article.get("similar_articles") or []:
+        similar_lines.append(
+            "- "
+            + "；".join(
+                part
+                for part in [
+                    item.get("title", ""),
+                    f"PMID：{item.get('pmid', '')}" if item.get("pmid") else "",
+                    f"PMCID：{item.get('pmcid', '')}" if item.get("pmcid") else "",
+                    f"DOI：{item.get('doi', '')}" if item.get("doi") else "",
+                    f"相关性：{item.get('relation_reason_zh', '')}" if item.get("relation_reason_zh") else "",
+                ]
+                if part
+            )
+        )
     return "\n".join(
         [
             f"题名：{article.get('title', '')}",
@@ -497,9 +650,13 @@ def format_pubmed_text(article: dict[str, Any]) -> str:
             f"发表日期：{article.get('publication_date', '')}",
             f"作者：{'；'.join(article.get('authors') or [])}",
             f"MeSH：{'；'.join(article.get('mesh_terms') or [])}",
+            f"Keywords：{'；'.join(article.get('keywords') or [])}",
             "",
-            "摘要：",
+            "Abstract：",
             article.get("abstract", ""),
+            "",
+            "Similar articles：",
+            "\n".join(similar_lines) if similar_lines else "未采集到高相关 Similar articles。",
             "",
             f"PubMed链接：{article.get('pubmed_url', '')}",
             f"PMC链接：{article.get('pmc_url', '')}",
@@ -518,8 +675,9 @@ def format_pmc_text(article: dict[str, Any]) -> str:
             f"期刊：{article.get('journal', '')}",
             f"发表日期：{article.get('publication_date', '')}",
             f"作者：{'；'.join(article.get('authors') or [])}",
+            f"Keywords：{'；'.join(article.get('keywords') or [])}",
             "",
-            "摘要：",
+            "Abstract：",
             article.get("abstract", ""),
             "",
             "全文片段：",
@@ -547,6 +705,90 @@ def _save_literature_text(task_dir: Path, filename: str, text: str) -> str:
     return str(path.relative_to(task_dir))
 
 
+def _chunks(values: list[str], size: int) -> list[list[str]]:
+    return [values[index : index + size] for index in range(0, len(values), size)]
+
+
+def _fetch_pubmed_article_batches(
+    client: NCBIClient,
+    task_dir: Path,
+    *,
+    db: str,
+    ids: list[str],
+    material_id: str,
+    raw_subdir: str,
+    filename_stem: str,
+    parser,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    articles: list[dict[str, Any]] = []
+    fetch_xml_paths: list[str] = []
+    for batch_index, batch_ids in enumerate(_chunks(ids, EFETCH_BATCH_SIZE), start=1):
+        fetch_xml = client.efetch(db, batch_ids, rettype="", retmode="xml")
+        suffix = f"batch{batch_index:03d}" if len(ids) > EFETCH_BATCH_SIZE else "batch001"
+        fetch_xml_path = _save_raw_text(
+            task_dir,
+            raw_subdir,
+            f"{material_id}_{filename_stem}_{suffix}.xml",
+            fetch_xml,
+        )
+        batch_articles = parser(fetch_xml)
+        fetch_xml_paths.extend([fetch_xml_path] * len(batch_articles))
+        articles.extend(batch_articles)
+    return articles, fetch_xml_paths
+
+
+def _related_pubmed_articles(
+    client: NCBIClient,
+    task_dir: Path,
+    *,
+    pmid: str,
+    material_id: str,
+    retmax: int,
+    seen_pmids: set[str],
+) -> tuple[list[dict[str, Any]], str]:
+    if not pmid or retmax <= 0:
+        return [], ""
+    try:
+        link = client.elink(
+            "pubmed",
+            "pubmed",
+            [pmid],
+            linkname="pubmed_pubmed",
+            retmax=retmax + 3,
+        )
+    except NCBIHTTPError:
+        return [], ""
+    raw_path = _save_raw_text(
+        task_dir,
+        "pubmed",
+        f"{material_id}_pubmed_similar_elink.xml",
+        link.get("xml", ""),
+    )
+    ids = [
+        item
+        for item in (link.get("ids") or [])
+        if item and item != pmid and item not in seen_pmids
+    ][:retmax]
+    if not ids:
+        return [], raw_path
+    try:
+        fetch_xml = client.efetch("pubmed", ids, rettype="", retmode="xml")
+    except NCBIHTTPError:
+        return [], raw_path
+    fetch_path = _save_raw_text(
+        task_dir,
+        "pubmed",
+        f"{material_id}_pubmed_similar_efetch.xml",
+        fetch_xml,
+    )
+    related = parse_pubmed_articles(fetch_xml)
+    for item in related:
+        item["relation_type"] = "similar_article"
+        item["relation_reason_zh"] = "PubMed Similar articles 推荐，需人工复核主题相关性。"
+        item["similar_source_pmid"] = pmid
+    return related[:retmax], fetch_path or raw_path
+
+
 def _ncbi_error_result(subject_zh: str, exc: NCBIHTTPError) -> ScenarioResult:
     if exc.status_code == 429:
         return ScenarioResult(
@@ -571,11 +813,13 @@ def _ncbi_error_result(subject_zh: str, exc: NCBIHTTPError) -> ScenarioResult:
 
 
 def _safe_int(value: Any, default: int) -> int:
+    if isinstance(value, str) and value.strip().lower() in {"all", "全部", "full", "unlimited"}:
+        return MAX_RETMAX
     try:
         parsed = int(value)
     except (TypeError, ValueError):
         return default
-    return max(1, min(parsed, 200))
+    return max(1, min(parsed, MAX_RETMAX))
 
 
 def _with_pubmed_date_filter(query: str, date_range: Any) -> str:
@@ -628,6 +872,64 @@ def _first(root: ElementTree.Element, path: str) -> ElementTree.Element | None:
     return candidates[0] if candidates else None
 
 
+def _abstract_sections(article_node: ElementTree.Element) -> list[dict[str, str]]:
+    sections = []
+    for abstract_text in article_node.findall(".//Abstract/AbstractText"):
+        label = abstract_text.attrib.get("Label") or abstract_text.attrib.get("NlmCategory") or ""
+        text = _joined_node_text(abstract_text)
+        if text:
+            sections.append({"label": label, "text": text})
+    return sections
+
+
+def _format_abstract_sections(sections: list[dict[str, str]]) -> str:
+    parts = []
+    for section in sections:
+        label = str(section.get("label") or "").strip()
+        text = str(section.get("text") or "").strip()
+        if not text:
+            continue
+        parts.append(f"{label}: {text}" if label else text)
+    return "\n".join(parts)
+
+
+def _pmc_abstract_sections(article_node: ElementTree.Element) -> list[dict[str, str]]:
+    abstract = _first(article_node, ".//front/article-meta/abstract")
+    if abstract is None:
+        return []
+    sections: list[dict[str, str]] = []
+    for child in list(abstract):
+        local = _local_name(child.tag)
+        if local == "sec":
+            title = _joined_node_text(_child_by_local(child, "title"))
+            text_parts = [
+                _joined_node_text(node)
+                for node in list(child)
+                if _local_name(node.tag) != "title"
+            ]
+            text = " ".join(part for part in text_parts if part).strip()
+            if text:
+                sections.append({"label": title, "text": text})
+        elif local in {"p", "title"}:
+            text = _joined_node_text(child)
+            if text and local != "title":
+                sections.append({"label": "", "text": text})
+    if not sections:
+        text = _joined_node_text(abstract)
+        if text:
+            sections.append({"label": "", "text": text})
+    return sections
+
+
+def _pmc_keywords(article_node: ElementTree.Element) -> list[str]:
+    keywords = []
+    for keyword in article_node.findall(".//front/article-meta/kwd-group/kwd"):
+        text = _joined_node_text(keyword)
+        if text:
+            keywords.append(text)
+    return keywords
+
+
 def _abstract_text(article_node: ElementTree.Element) -> str:
     parts = []
     for abstract_text in article_node.findall(".//Abstract/AbstractText"):
@@ -636,6 +938,18 @@ def _abstract_text(article_node: ElementTree.Element) -> str:
         if text:
             parts.append(f"{label}: {text}" if label else text)
     return " ".join(parts)
+
+
+def safe_filename_part(value: str, max_length: int = 80) -> str:
+    cleaned = re.sub(r"[\\/:*?\"<>|]+", " ", str(value or ""))
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    cleaned = cleaned.strip(". ")
+    return cleaned[:max_length].strip() or "untitled"
+
+
+def material_filename(material_id: str, title: str, source: str, suffix: str) -> str:
+    ext = suffix if suffix.startswith(".") else f".{suffix}"
+    return f"{material_id}_{safe_filename_part(title)}_{safe_filename_part(source, 24)}{ext}"
 
 
 def _pubmed_date(article_node: ElementTree.Element) -> str:

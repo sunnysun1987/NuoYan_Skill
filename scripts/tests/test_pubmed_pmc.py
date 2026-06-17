@@ -3,8 +3,12 @@ from pathlib import Path
 from ivd_research.evidence import build_draft_evidence_card
 from ivd_research.review_excel import export_review
 from ivd_research.scenarios.pubmed_pmc import (
+    EFETCH_BATCH_SIZE,
+    NCBIClient,
+    _fetch_pubmed_article_batches,
     format_pmc_text,
     format_pubmed_text,
+    material_filename,
     parse_pmc_articles,
     parse_pubmed_articles,
 )
@@ -32,6 +36,10 @@ PUBMED_XML = """<?xml version="1.0"?>
           <AbstractText Label="Background">p-tau217 is associated with Alzheimer pathology.</AbstractText>
           <AbstractText Label="Methods">A blood-based assay was evaluated.</AbstractText>
         </Abstract>
+        <KeywordList>
+          <Keyword>Alzheimer disease</Keyword>
+          <Keyword>blood biomarkers</Keyword>
+        </KeywordList>
         <AuthorList>
           <Author><ForeName>Alice</ForeName><LastName>Wang</LastName></Author>
         </AuthorList>
@@ -60,7 +68,7 @@ PMC_XML = """<?xml version="1.0"?>
       </journal-meta>
       <article-meta>
         <article-id pub-id-type="pmid">12345678</article-id>
-        <article-id pub-id-type="pmc">1234567</article-id>
+        <article-id pub-id-type="pmcid">PMC1234567</article-id>
         <article-id pub-id-type="doi">10.1000/test.2026.1</article-id>
         <title-group><article-title>Plasma p-tau217 full text evidence</article-title></title-group>
         <contrib-group>
@@ -111,8 +119,29 @@ def test_parse_pubmed_articles_extracts_evidence_fields():
     assert article["doi"] == "10.1000/test.2026.1"
     assert "p-tau217" in article["title"]
     assert "Background" in article["abstract"]
+    assert article["abstract_sections"] == [
+        {"label": "Background", "text": "p-tau217 is associated with Alzheimer pathology."},
+        {"label": "Methods", "text": "A blood-based assay was evaluated."},
+    ]
+    assert "blood biomarkers" in article["keywords"]
     assert "Alzheimer Disease" in article["mesh_terms"]
-    assert "12345678" in format_pubmed_text(article)
+    formatted = format_pubmed_text(
+        {
+            **article,
+            "similar_articles": [
+                {
+                    "title": "Related AD biomarker study",
+                    "pmid": "87654321",
+                    "pmcid": "PMC7654321",
+                    "doi": "10.1000/related",
+                    "relation_reason_zh": "PubMed Similar articles 推荐，需人工复核主题相关性。",
+                }
+            ],
+        }
+    )
+    assert "12345678" in formatted
+    assert "Similar articles" in formatted
+    assert "87654321" in formatted
 
 
 def test_parse_pmc_articles_extracts_fulltext_fields():
@@ -125,7 +154,24 @@ def test_parse_pmc_articles_extracts_fulltext_fields():
     assert article["doi"] == "10.1000/test.2026.1"
     assert "full text" in article["title"]
     assert "clinically relevant" in article["full_visible_text"]
+    assert article["abstract_sections"] == [
+        {"label": "", "text": "This full text article evaluates p-tau217 performance."}
+    ]
     assert "PMC1234567" in format_pmc_text(article)
+
+
+def test_material_filename_uses_safe_title():
+    filename = material_filename(
+        "MAT-000001",
+        "Aβ42/Aβ40: plasma * diagnostic? evidence <review>",
+        "PMC",
+        ".pdf",
+    )
+
+    assert filename.endswith("_PMC.pdf")
+    assert "/" not in filename
+    assert "*" not in filename
+    assert filename.startswith("MAT-000001_Aβ42 Aβ40")
 
 
 def test_parse_pmc_articles_prefers_epub_date_over_collection_issue():
@@ -179,4 +225,59 @@ def test_pubmed_material_flows_to_evidence_card_and_review(tmp_path: Path):
 
     assert "PMID：12345678" in "；".join(card.key_facts)
     assert "PMCID：PMC1234567" in "；".join(card.key_facts)
+    assert "Abstract[Background]：p-tau217 is associated with Alzheimer pathology." in card.key_facts
+    assert "Abstract[Methods]：A blood-based assay was evaluated." in card.key_facts
+    assert "Keywords：Alzheimer disease；blood biomarkers" in card.key_facts
     assert Path(review["review_path"]).exists()
+
+
+def test_fetch_pubmed_article_batches_avoids_large_efetch_requests(tmp_path: Path):
+    class FakeClient:
+        def __init__(self):
+            self.calls = []
+
+        def efetch(self, db, ids, *, rettype, retmode):
+            self.calls.append(list(ids))
+            return "<PubmedArticleSet>" + "".join(
+                f"<PubmedArticle><MedlineCitation><PMID>{pmid}</PMID><Article><ArticleTitle>Title {pmid}</ArticleTitle></Article></MedlineCitation></PubmedArticle>"
+                for pmid in ids
+            ) + "</PubmedArticleSet>"
+
+    task_dir = tmp_path / "task"
+    create_task_directories(task_dir)
+    ids = [str(index) for index in range(EFETCH_BATCH_SIZE * 2 + 5)]
+    client = FakeClient()
+
+    articles, paths = _fetch_pubmed_article_batches(
+        client,
+        task_dir,
+        db="pubmed",
+        ids=ids,
+        material_id="MAT-000001",
+        raw_subdir="pubmed",
+        filename_stem="pubmed_efetch",
+        parser=parse_pubmed_articles,
+    )
+
+    assert [len(call) for call in client.calls] == [EFETCH_BATCH_SIZE, EFETCH_BATCH_SIZE, 5]
+    assert len(articles) == len(ids)
+    assert len(paths) == len(ids)
+
+
+def test_esearch_all_uses_count_instead_of_fixed_cap():
+    class FakeClient(NCBIClient):
+        def __init__(self):
+            super().__init__()
+            self.retmax_calls = []
+
+        def _esearch_xml(self, db, term, *, retmax):
+            self.retmax_calls.append(retmax)
+            ids = "".join(f"<Id>{index}</Id>" for index in range(1, retmax + 1))
+            return f"<eSearchResult><Count>205</Count><IdList>{ids}</IdList></eSearchResult>"
+
+    client = FakeClient()
+    result = client.esearch("pubmed", "p-tau217", retmax="all")
+
+    assert client.retmax_calls == [0, 205]
+    assert result["retmax"] == 205
+    assert len(result["ids"]) == 205
