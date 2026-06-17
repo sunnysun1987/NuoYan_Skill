@@ -8,13 +8,13 @@ Clone this repository into a Codex skills directory, then restart Codex so the s
 
 ```bash
 mkdir -p ~/.codex/skills
-git clone <repo-url> ~/.codex/skills/Nuoyan_skill_V2.0
+git clone git@github.com:sunnysun1987/nuoyan-skill-v2.git ~/.codex/skills/nuoyan-skill-v2
 ```
 
 For local CLI use, install the Python package in editable mode:
 
 ```bash
-cd ~/.codex/skills/Nuoyan_skill_V2.0
+cd ~/.codex/skills/nuoyan-skill-v2
 python3 -m pip install -e ".[dev]"
 ```
 
