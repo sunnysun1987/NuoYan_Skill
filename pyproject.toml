@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nuoyan-skill-v2"
+version = "2.0.0"
+description = "诺研 V2 — IVD 立项可行性调研证据采集、报告和审阅表生成工具"
+requires-python = ">=3.11"
+dependencies = [
+    "typer",
+    "pydantic",
+    "jinja2",
+    "openpyxl",
+    "beautifulsoup4",
+    "lxml",
+    "httpx",
+]
+
+[project.scripts]
+nuoyan = "ivd_research.cli:main"
+
+[project.optional-dependencies]
+pdf = [
+    "pypdf",
+    "pdfplumber",
+]
+browser = [
+    "playwright",
+]
+ocr = [
+    "pillow",
+    "pytesseract",
+]
+dev = [
+    "pytest",
+    "ruff",
+]
+
+[tool.setuptools]
+package-dir = {"" = "scripts"}
+
+[tool.setuptools.packages.find]
+where = ["scripts"]
+
+[tool.pytest.ini_options]
+testpaths = ["scripts/tests"]
+pythonpath = ["scripts"]

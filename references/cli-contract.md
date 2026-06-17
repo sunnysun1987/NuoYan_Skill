@@ -1,0 +1,50 @@
+# CLI 契约
+
+CLI 命令由 agent 调用：
+
+- `nuoyan doctor --json`
+- `nuoyan doctor --network --json`
+- `nuoyan init-task --topic <topic> --json`
+- `nuoyan show-status --task-id <task_id> --json`
+- `nuoyan update-confirmations --task-id <task_id> --values-json <json> --json`
+- `nuoyan run-scenario --task-id <task_id> --scenario <scenario_id> --json`
+- `nuoyan run-full-pipeline --task-id <task_id> [--network-preflight|--skip-network-preflight] --json`
+- `nuoyan run-delivery-pipeline --task-id <task_id> [--network-preflight|--skip-network-preflight] --json`
+- `nuoyan import-local --task-id <task_id> --path <path> --json`
+- `nuoyan import-finding --task-id <task_id> --title <title> --source <source> --source-url <url> --content <text> --material-type <type> --json`
+- `nuoyan create-analysis-requests --task-id <task_id> --json`
+- `nuoyan validate-staged --task-id <task_id> --type evidence-card --json`
+- `nuoyan commit-staged --task-id <task_id> --type evidence-card --json`
+- `nuoyan export-review --task-id <task_id> --json`
+- `nuoyan import-review --task-id <task_id> --xlsx <path> --json`
+- `nuoyan build-report --task-id <task_id> --type materials --json`
+- `nuoyan build-report --task-id <task_id> --type feasibility --json`
+- `nuoyan build-standard-delivery --task-id <task_id> --json`
+- `nuoyan verify-package --task-id <task_id> --json`
+- `nuoyan package-task --task-id <task_id> --json`
+- `nuoyan site-profile --scenario <scenario_id> --json`
+- `nuoyan record-site-observation --task-id <task_id> --scenario <scenario_id> --observation-json <json> --json`
+- `nuoyan prepare-browser-session --task-id <task_id> --scenario <scenario_id> --json`
+- `nuoyan open-browser-session --task-id <task_id> --scenario <scenario_id> --json`
+- `nuoyan browser-workflow --scenario <scenario_id> --query <query> --json`
+- `nuoyan probe-browser-workflow --task-id <task_id> --scenario <scenario_id> --query <query> --json`
+- `nuoyan scout-browser-workflow --task-id <task_id> --scenario <scenario_id> --query <query> --launch-mode playwright|edge-cdp --json`
+- `nuoyan run-browser-workflow --task-id <task_id> --scenario <scenario_id> --query <query> [--methodology <method>] [--launch-mode playwright|edge-cdp] --json`
+
+不要让非 IT 业务用户直接阅读 JSON；agent 应把 JSON 转成中文状态说明。
+
+## V2.0 门禁契约
+
+- `run-scenario` 执行正式来源场景前会检查检索画像；缺少必要确认项时返回 `needs_confirmation` 并以退出码 2 停止。
+- `doctor --network` 用于正式公网采集前的网络体检，必须区分 Python DNS、Python HTTPS 和系统 curl 通道。
+- `run-full-pipeline` 和 `run-delivery-pipeline` 在未补全检索画像时不得启动正式采集；默认开启网络预检并写入 `network_preflight` 日志。
+- `build-standard-delivery` 可生成草稿交付，但若检索画像缺失，会写入日志并由 `verify-package` 标记 `search_profile_ready=false`。
+- `verify-package` 必须输出 `search_profile_ready`、`scenario_coverage_ready`、`fallback_ready`、`network_ready`、`final_review_ready`、`business_ready`。最终对外回复必须解释这些字段。
+- 采集失败后，agent 必须使用 `import-finding`、浏览器 workflow、重试或用户材料导入等动作形成兜底记录；缺少兜底记录时 `fallback_ready=false`。
+
+`prepare-browser-session` 和 `open-browser-session` 用于需要登录态、Cloudflare 真人验证或复杂页面交互的网站。它们只负责持久化合法浏览器状态，不得用于绕过验证码、付费墙或权限墙。
+`probe-browser-workflow` 只做只读页面探测和状态分类，用于确认当前持久化会话是否已经登录、是否被权限限制、是否进入搜索结果页。
+`scout-browser-workflow` 用于站点适配开发，保存页面 HTML、DOM 候选元素和 network response 候选。NMPA 等 Playwright launch 不稳定的网站可使用 `--launch-mode edge-cdp` 通过独立 Edge + CDP 侦察。
+`run-browser-workflow` 使用固定 workflow 和同一持久化会话执行受控页面流程。当前通用层负责正常导航、弹窗安全关闭、搜索页快照、下载目录约束、状态分类和日志记录；站点级详情解析和材料生成必须在后续 collector 中明确实现，不能伪造材料。
+
+浏览器 workflow 默认优先尝试无头执行，避免干扰用户桌面。只有需要登录、验证码、机构认证、下载授权确认或开发排错时，才主动使用 `--headed` 打开可见浏览器。若某个站点只能通过可见浏览器稳定采集，命令必须在结果和日志中记录降级原因。

@@ -1,0 +1,964 @@
+import json
+import inspect
+from json import JSONDecodeError
+from pathlib import Path
+from typing import Optional
+
+import typer
+
+from .browser_session import (
+    open_browser_session,
+    prepare_browser_session,
+    probe_browser_workflow,
+)
+from .browser_collect import run_browser_workflow, scout_browser_workflow
+from .browser_workflows import browser_workflow, search_url_for_workflow
+from .confirmations import update_confirmations
+from .doctor import run_doctor, run_network_doctor
+from .evidence import (
+    commit_staged_evidence,
+    generate_draft_evidence_cards,
+    validate_staged_evidence,
+)
+from .import_finding import import_finding
+from .local_import import import_local
+from .models import FailureType, Material
+from .paths import default_output_root
+from .package import build_standard_delivery, package_task, verify_package
+from .query_plan import default_query_plan, scenario_query_plans
+from .reports import build_report
+from .review_excel import export_review, import_review
+from .scenarios import (
+    cma_lab_management,
+    cmde_regulatory,
+    nmpa_competitor,
+    patenthub_patents,
+    openalex_literature,
+    pubmed_pmc,
+    standards_current,
+    wiley_alz,
+    yiigle_fulltext,
+    yiigle_zhjyyxzz,
+    yiigle_zhsjkzz,
+)
+from .scenarios.registry import get_scenario
+from .scenarios.base import ScenarioResult
+from .site_profiles import record_site_observation, site_profile
+from .jsonl import append_jsonl
+from .staging import (
+    commit_staged_report_sections,
+    create_analysis_requests,
+    validate_staged_report_sections,
+)
+from .status import (
+    find_task,
+    init_task,
+    load_task,
+    next_material_id,
+    record_materials,
+    save_task,
+    status_payload,
+    now_iso,
+)
+
+app = typer.Typer(name="nuoyan", no_args_is_help=True)
+
+REQUIRED_BUSINESS_CONFIRMATIONS = [
+    "task_info",
+    "keyword_pool",
+    "collection_scope",
+    "primary_query",
+    "english_keywords",
+    "sample_type",
+    "platform",
+    "methodology",
+    "intended_use",
+    "target_region",
+    "competitor_scope",
+    "patent_scope",
+]
+
+CONFIRMATION_QUESTIONS = {
+    "task_info": "项目对象是否已确认。",
+    "keyword_pool": "核心中文/英文关键词池是否已确认。",
+    "collection_scope": "本次是否执行完整立项调研来源采集。",
+    "primary_query": "请确认中文主检索词，例如：AD p-tau181 血液标志物 IVD。",
+    "english_keywords": "请确认英文主检索式，覆盖靶标、疾病、样本和用途。",
+    "sample_type": "请确认样本类型，例如：血浆/血清/全血/指尖血。",
+    "platform": "请确认计划平台，例如：化学发光、磁微粒化学发光、ELISA、胶体金、POCT、质谱。",
+    "methodology": "请确认方法学/检测原理，例如：免疫夹心法、竞争法、抗体对、校准品体系。",
+    "intended_use": "请确认预期用途，例如：AD 辅助诊断、风险分层、转诊筛查、疗效监测或研究用途。",
+    "target_region": "请确认目标地区，例如：中国注册优先/中国+欧盟/中国+美国。",
+    "competitor_scope": "请确认竞品范围，例如：p-tau181 直接竞品、p-tau217/Abeta/tau 相邻竞品、AD 血液标志物整体。",
+    "patent_scope": "请确认专利检索范围，例如：中国/全球/PCT+中美欧日。",
+}
+
+
+def missing_business_confirmations(state) -> list[str]:
+    missing = []
+    for key in REQUIRED_BUSINESS_CONFIRMATIONS:
+        value = state.confirmations.get(key)
+        if value in (False, None, "", [], {}):
+            missing.append(key)
+    return missing
+
+
+def confirmation_gate_payload(state, *, action: str) -> dict:
+    missing_confirmations = missing_business_confirmations(state)
+    return {
+        "status": "needs_confirmation",
+        "action": action,
+        "missing_confirmations": missing_confirmations,
+        "questions": {
+            key: CONFIRMATION_QUESTIONS.get(key, key)
+            for key in missing_confirmations
+        },
+        "message_zh": (
+            "正式检索前必须先完成 IVD 研发业务检索画像确认。"
+            "检测对象、样本类型、平台/方法学、预期用途、目标地区、竞品范围和专利范围会直接进入检索词与筛选逻辑。"
+        ),
+    }
+
+
+def enforce_business_confirmations(state, *, action: str, json_output: bool) -> None:
+    if not missing_business_confirmations(state):
+        return
+    emit(confirmation_gate_payload(state, action=action), json_output)
+    raise typer.Exit(code=2)
+
+SCENARIO_COLLECTORS = {
+    "cmde_regulatory": cmde_regulatory.collect,
+    "nmpa_competitor": nmpa_competitor.collect,
+    "standards_current": standards_current.collect,
+    "patenthub_patents": patenthub_patents.collect,
+    "yiigle_zhjyyxzz": yiigle_zhjyyxzz.collect,
+    "yiigle_zhsjkzz": yiigle_zhsjkzz.collect,
+    "cma_lab_management": cma_lab_management.collect,
+    "wiley_alz": wiley_alz.collect,
+    "pubmed_literature": pubmed_pmc.collect_pubmed,
+    "pmc_fulltext": pubmed_pmc.collect_pmc,
+    "openalex_literature": openalex_literature.collect,
+    "yiigle_fulltext": yiigle_fulltext.collect,
+}
+
+DELIVERY_HTTP_SCENARIOS = [
+    "nmpa_competitor",    # now self-contained: HTTP → Edge CDP fallback in collect()
+    "standards_current",
+    "yiigle_zhjyyxzz",
+    "yiigle_zhsjkzz",
+    "cma_lab_management",
+    "pubmed_literature",
+    "pmc_fulltext",
+    "openalex_literature",
+]
+
+DELIVERY_BROWSER_SCENARIOS = [
+    "cmde_regulatory",
+    "patenthub_patents",
+]
+
+
+def emit(payload: dict, as_json: bool) -> None:
+    if as_json:
+        try:
+            typer.echo(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+        except UnicodeEncodeError:
+            typer.echo(json.dumps(payload, ensure_ascii=True, indent=2, sort_keys=True))
+    else:
+        typer.echo(payload)
+
+
+def _supports_kwarg(func, name: str) -> bool:
+    try:
+        return name in inspect.signature(func).parameters
+    except (TypeError, ValueError):
+        return True
+
+
+def _record_scenario_result(task_dir: Path, state, scenario: str, result) -> None:
+    materials = [
+        material if isinstance(material, Material) else Material.model_validate(material)
+        for material in getattr(result, "materials", [])
+    ]
+    record_materials(task_dir, materials)
+    if scenario in state.scenario_statuses:
+        state.scenario_statuses[scenario].status = result.status
+        state.scenario_statuses[scenario].material_count += len(materials)
+        if result.status != "completed":
+            state.scenario_statuses[scenario].failure_count += 1
+        state.scenario_statuses[scenario].last_message = result.message_zh
+
+
+def _exception_result(scenario: str, exc: Exception) -> ScenarioResult:
+    return ScenarioResult(
+        status=FailureType.COLLECTION_FAILED.value,
+        failure_type=FailureType.COLLECTION_FAILED,
+        message_zh=f"{scenario} 采集异常：{type(exc).__name__}: {exc}",
+    )
+
+
+def _run_network_preflight(task_dir: Path, *, enabled: bool, action: str) -> dict:
+    if not enabled:
+        return {
+            "status": "skipped",
+            "message_zh": "已跳过网络预检；如公网来源采集异常，必须另行记录失败原因和兜底动作。",
+        }
+    result = run_network_doctor(timeout=8)
+    append_jsonl(
+        task_dir / "logs" / "events.jsonl",
+        {
+            "time": now_iso(),
+            "event": "network_preflight",
+            "action": action,
+            "network_ok": result.get("ok", False),
+            "probes": result.get("probes", []),
+            "message_zh": result.get("message_zh", ""),
+        },
+    )
+    return result
+
+
+def _record_browser_result(task_dir: Path, state, scenario: str, result: dict) -> None:
+    materials = [
+        material if isinstance(material, Material) else Material.model_validate(material)
+        for material in result.get("materials", [])
+    ]
+    record_materials(task_dir, materials)
+    if scenario in state.scenario_statuses:
+        state.scenario_statuses[scenario].status = result["status"]
+        state.scenario_statuses[scenario].material_count += len(materials)
+        if result["status"] not in {"completed", "search_results"}:
+            state.scenario_statuses[scenario].failure_count += 1
+        state.scenario_statuses[scenario].last_message = result["message_zh"]
+    append_jsonl(
+        task_dir / "logs" / "events.jsonl",
+        {
+            "time": now_iso(),
+            "event": "delivery_browser_workflow_ran",
+            "scenario_id": scenario,
+            "status": result["status"],
+            "target_url": result["target_url"],
+            "final_url": result["final_url"],
+            "snapshot_paths": result["snapshot_paths"],
+            "message_zh": result["message_zh"],
+        },
+    )
+
+
+@app.command("init-task")
+def init_task_command(
+    topic: str = typer.Option(..., "--topic"),
+    output_root: Optional[Path] = typer.Option(None, "--output-root"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    root = output_root or default_output_root()
+    state = init_task(topic=topic, output_root=root)
+    emit(
+        {"task_id": state.task_id, "topic": state.topic, "task_dir": state.task_dir},
+        json_output,
+    )
+
+
+@app.command("show-status")
+def show_status_command(
+    task_id: str = typer.Option(..., "--task-id"),
+    output_root: Optional[Path] = typer.Option(None, "--output-root"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    root = output_root or default_output_root()
+    task_dir = find_task(root, task_id)
+    state = load_task(task_dir)
+    emit(status_payload(state), json_output)
+
+
+@app.command("doctor")
+def doctor_command(
+    output_root: Optional[Path] = typer.Option(None, "--output-root"),
+    network: bool = typer.Option(False, "--network", help="检查 PubMed/OpenAlex 等公网采集通道。"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    root = output_root or default_output_root()
+    emit(run_doctor(root, include_network=network), json_output)
+
+
+@app.command("update-confirmations")
+def update_confirmations_command(
+    task_id: str = typer.Option(..., "--task-id"),
+    values: Optional[str] = typer.Option(None, "--values-json"),
+    values_json_file: Optional[Path] = typer.Option(None, "--values-json-file"),
+    output_root: Optional[Path] = typer.Option(None, "--output-root"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    root = output_root or default_output_root()
+    task_dir = find_task(root, task_id)
+    if bool(values) == bool(values_json_file):
+        raise typer.BadParameter("Provide exactly one of --values-json or --values-json-file")
+    raw_values = values
+    if values_json_file is not None:
+        raw_values = values_json_file.read_text(encoding="utf-8-sig")
+    try:
+        payload = json.loads(raw_values or "")
+    except JSONDecodeError as exc:
+        raise typer.BadParameter("--values-json must be a JSON object") from exc
+    try:
+        result = update_confirmations(task_dir, payload)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    emit(result, json_output)
+
+
+@app.command("run-scenario")
+def run_scenario_command(
+    task_id: str = typer.Option(..., "--task-id"),
+    scenario: str = typer.Option(..., "--scenario"),
+    output_root: Optional[Path] = typer.Option(None, "--output-root"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    root = output_root or default_output_root()
+    task_dir = find_task(root, task_id)
+    state = load_task(task_dir)
+    if scenario in SCENARIO_COLLECTORS and scenario != "local_import":
+        enforce_business_confirmations(
+            state,
+            action=f"run_scenario:{scenario}",
+            json_output=json_output,
+        )
+    adapter = get_scenario(scenario)
+    plans = scenario_query_plans(state).get(scenario) or default_query_plan(state)
+    plan = plans[0]
+    params = {
+        "material_id": next_material_id(task_dir),
+        "query": plan.query,
+        **plan.params,
+    }
+    collector = SCENARIO_COLLECTORS.get(scenario)
+    if collector:
+        result = collector(task_id=task_id, task_dir=task_dir, params=params)
+    else:
+        result = adapter.run(task_id=task_id, task_dir=task_dir, params=params)
+    record_materials(task_dir, result.materials)
+
+    if scenario in state.scenario_statuses:
+        state.scenario_statuses[scenario].status = result.status
+        state.scenario_statuses[scenario].material_count += len(result.materials)
+        if result.status != "completed":
+            state.scenario_statuses[scenario].failure_count += 1
+        state.scenario_statuses[scenario].last_message = result.message_zh
+    save_task(state)
+    emit(result.model_dump(mode="json"), json_output)
+
+
+@app.command("import-finding")
+def import_finding_command(
+    task_id: str = typer.Option(..., "--task-id"),
+    title: str = typer.Option(..., "--title"),
+    source: str = typer.Option("web_search", "--source"),
+    source_url: str = typer.Option("", "--source-url"),
+    content: Optional[str] = typer.Option(None, "--content"),
+    content_file: Optional[Path] = typer.Option(None, "--content-file"),
+    material_type: str = typer.Option("", "--material-type"),
+    search_query: str = typer.Option("", "--search-query"),
+    identifier: str = typer.Option("", "--identifier"),
+    publication_date: str = typer.Option("", "--publication-date"),
+    output_root: Optional[Path] = typer.Option(None, "--output-root"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Import an external finding (web search, Jina Reader, etc.) into the
+    material pipeline so it contributes to evidence cards and reports."""
+    root = output_root or default_output_root()
+    task_dir = find_task(root, task_id)
+    if bool(content) == bool(content_file):
+        raise typer.BadParameter("Provide exactly one of --content or --content-file")
+    body = content or ""
+    if content_file is not None:
+        body = content_file.read_text(encoding="utf-8", errors="ignore")
+    result = import_finding(
+        task_dir,
+        title=title,
+        source=source,
+        source_url=source_url,
+        content=body,
+        material_type=material_type,
+        search_query=search_query,
+        identifier=identifier,
+        publication_date=publication_date,
+    )
+    emit(result, json_output)
+
+
+@app.command("import-local")
+def import_local_command(
+    task_id: str = typer.Option(..., "--task-id"),
+    path: Path = typer.Option(..., "--path"),
+    output_root: Optional[Path] = typer.Option(None, "--output-root"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    root = output_root or default_output_root()
+    task_dir = find_task(root, task_id)
+    try:
+        result = import_local(task_id, task_dir, path)
+    except FileNotFoundError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    emit(result, json_output)
+
+
+@app.command("create-analysis-requests")
+def create_analysis_requests_command(
+    task_id: str = typer.Option(..., "--task-id"),
+    output_root: Optional[Path] = typer.Option(None, "--output-root"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    root = output_root or default_output_root()
+    task_dir = find_task(root, task_id)
+    emit(create_analysis_requests(task_dir), json_output)
+
+
+@app.command("validate-staged")
+def validate_staged_command(
+    task_id: str = typer.Option(..., "--task-id"),
+    staged_type: str = typer.Option(..., "--type"),
+    output_root: Optional[Path] = typer.Option(None, "--output-root"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    root = output_root or default_output_root()
+    task_dir = find_task(root, task_id)
+    if staged_type == "evidence-card":
+        emit(validate_staged_evidence(task_dir), json_output)
+    elif staged_type == "report-section":
+        emit(validate_staged_report_sections(task_dir), json_output)
+    else:
+        raise typer.BadParameter("Supported types: evidence-card, report-section.")
+
+
+@app.command("commit-staged")
+def commit_staged_command(
+    task_id: str = typer.Option(..., "--task-id"),
+    staged_type: str = typer.Option(..., "--type"),
+    output_root: Optional[Path] = typer.Option(None, "--output-root"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    root = output_root or default_output_root()
+    task_dir = find_task(root, task_id)
+    if staged_type == "evidence-card":
+        emit(commit_staged_evidence(task_dir), json_output)
+    elif staged_type == "report-section":
+        emit(commit_staged_report_sections(task_dir), json_output)
+    else:
+        raise typer.BadParameter("Supported types: evidence-card, report-section.")
+
+
+@app.command("generate-evidence-cards")
+def generate_evidence_cards_command(
+    task_id: str = typer.Option(..., "--task-id"),
+    output_root: Optional[Path] = typer.Option(None, "--output-root"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    root = output_root or default_output_root()
+    task_dir = find_task(root, task_id)
+    emit(generate_draft_evidence_cards(task_dir), json_output)
+
+
+@app.command("export-review")
+def export_review_command(
+    task_id: str = typer.Option(..., "--task-id"),
+    output_root: Optional[Path] = typer.Option(None, "--output-root"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    root = output_root or default_output_root()
+    task_dir = find_task(root, task_id)
+    emit(export_review(task_dir), json_output)
+
+
+@app.command("import-review")
+def import_review_command(
+    task_id: str = typer.Option(..., "--task-id"),
+    xlsx: Path = typer.Option(..., "--xlsx"),
+    output_root: Optional[Path] = typer.Option(None, "--output-root"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    root = output_root or default_output_root()
+    task_dir = find_task(root, task_id)
+    try:
+        result = import_review(task_dir, xlsx)
+    except FileNotFoundError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    emit(result, json_output)
+
+
+@app.command("build-report")
+def build_report_command(
+    task_id: str = typer.Option(..., "--task-id"),
+    report_type: str = typer.Option(..., "--type"),
+    output_root: Optional[Path] = typer.Option(None, "--output-root"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    root = output_root or default_output_root()
+    task_dir = find_task(root, task_id)
+    try:
+        result = build_report(task_dir, report_type)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    emit(result, json_output)
+
+
+@app.command("verify-package")
+def verify_package_command(
+    task_id: str = typer.Option(..., "--task-id"),
+    output_root: Optional[Path] = typer.Option(None, "--output-root"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    root = output_root or default_output_root()
+    task_dir = find_task(root, task_id)
+    emit(verify_package(task_dir), json_output)
+
+
+@app.command("build-standard-delivery")
+def build_standard_delivery_command(
+    task_id: str = typer.Option(..., "--task-id"),
+    output_root: Optional[Path] = typer.Option(None, "--output-root"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    root = output_root or default_output_root()
+    task_dir = find_task(root, task_id)
+    state = load_task(task_dir)
+    missing_confirmations = missing_business_confirmations(state)
+    if missing_confirmations:
+        append_jsonl(
+            task_dir / "logs" / "events.jsonl",
+            {
+                "time": now_iso(),
+                "event": "standard_delivery_built_with_missing_confirmations",
+                "missing_confirmations": missing_confirmations,
+                "message_zh": "标准交付目录在检索画像未完整确认时生成，只能作为草稿。",
+            },
+        )
+    emit(build_standard_delivery(task_dir), json_output)
+
+
+@app.command("package-task")
+def package_task_command(
+    task_id: str = typer.Option(..., "--task-id"),
+    output_root: Optional[Path] = typer.Option(None, "--output-root"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    root = output_root or default_output_root()
+    task_dir = find_task(root, task_id)
+    emit(package_task(task_dir), json_output)
+
+
+@app.command("run-full-pipeline")
+def run_full_pipeline_command(
+    task_id: str = typer.Option(..., "--task-id"),
+    skip_collection: bool = typer.Option(False, "--skip-collection"),
+    network_preflight: bool = typer.Option(True, "--network-preflight/--skip-network-preflight"),
+    output_root: Optional[Path] = typer.Option(None, "--output-root"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    root = output_root or default_output_root()
+    task_dir = find_task(root, task_id)
+    state = load_task(task_dir)
+    collection_results = []
+    if not skip_collection:
+        enforce_business_confirmations(
+            state,
+            action="run_full_pipeline",
+            json_output=json_output,
+        )
+    network_status = {}
+    if not skip_collection:
+        network_status = _run_network_preflight(
+            task_dir,
+            enabled=network_preflight,
+            action="run_full_pipeline",
+        )
+    if not skip_collection:
+        plans_by_scenario = scenario_query_plans(state)
+        for scenario, collector in SCENARIO_COLLECTORS.items():
+            result = None
+            for plan in plans_by_scenario.get(scenario) or default_query_plan(state):
+                params = {
+                    "material_id": next_material_id(task_dir),
+                    "query": plan.query,
+                    **plan.params,
+                }
+                result = collector(task_id=task_id, task_dir=task_dir, params=params)
+                collection_results.append(result.model_dump(mode="json"))
+                if result.materials or result.status not in {
+                    "no_results",
+                    "no_valid_materials",
+                    "collection_failed",
+                }:
+                    break
+            if result is None:
+                continue
+            record_materials(task_dir, result.materials)
+            if scenario in state.scenario_statuses:
+                state.scenario_statuses[scenario].status = result.status
+                state.scenario_statuses[scenario].material_count += len(result.materials)
+                if result.status != "completed":
+                    state.scenario_statuses[scenario].failure_count += 1
+                state.scenario_statuses[scenario].last_message = result.message_zh
+        save_task(state)
+
+    evidence_result = generate_draft_evidence_cards(task_dir)
+    review_result = export_review(task_dir)
+    materials_report = build_report(task_dir, "materials")
+    feasibility_report = build_report(task_dir, "feasibility")
+    standard_delivery = build_standard_delivery(task_dir)
+    verification = verify_package(task_dir)
+    emit(
+        {
+            "collection": collection_results,
+            "network_preflight": network_status,
+            "evidence": evidence_result,
+            "review": review_result,
+            "reports": {
+                "materials": materials_report,
+                "feasibility": feasibility_report,
+            },
+            "standard_delivery": standard_delivery,
+            "verification": verification,
+        },
+        json_output,
+    )
+
+
+@app.command("run-delivery-pipeline")
+def run_delivery_pipeline_command(
+    task_id: str = typer.Option(..., "--task-id"),
+    output_root: Optional[Path] = typer.Option(None, "--output-root"),
+    browser_page_limit: int = typer.Option(5, "--browser-page-limit", min=1),
+    http_page_limit: int = typer.Option(100, "--http-page-limit", min=1),
+    headless: bool = typer.Option(False, "--headless/--headed"),
+    launch_mode: str = typer.Option("edge-cdp", "--launch-mode"),
+    profile_scope: str = typer.Option("task", "--profile-scope"),
+    skip_collection: bool = typer.Option(False, "--skip-collection"),
+    network_preflight: bool = typer.Option(True, "--network-preflight/--skip-network-preflight"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    root = output_root or default_output_root()
+    task_dir = find_task(root, task_id)
+    state = load_task(task_dir)
+    plans_by_scenario = scenario_query_plans(state)
+    collection_results = []
+    missing_confirmations = missing_business_confirmations(state)
+    if missing_confirmations and not skip_collection:
+        emit(confirmation_gate_payload(state, action="run_delivery_pipeline"), json_output)
+        raise typer.Exit(code=2)
+
+    network_status = {}
+    if not skip_collection:
+        network_status = _run_network_preflight(
+            task_dir,
+            enabled=network_preflight,
+            action="run_delivery_pipeline",
+        )
+        for scenario in DELIVERY_BROWSER_SCENARIOS:
+            plan = (plans_by_scenario.get(scenario) or default_query_plan(state))[0]
+            browser_kwargs = {
+                "query": plan.query,
+                "task_id": task_id,
+                "headless": headless,
+                "page_limit": browser_page_limit,
+                "methodology": str(plan.params.get("methodology", "")),
+                "launch_mode": launch_mode,
+            }
+            if _supports_kwarg(run_browser_workflow, "profile_scope"):
+                browser_kwargs["profile_scope"] = profile_scope
+            try:
+                result = run_browser_workflow(task_dir, scenario, **browser_kwargs)
+            except Exception as exc:
+                result = _exception_result(scenario, exc).model_dump(mode="json")
+            _record_browser_result(task_dir, state, scenario, result)
+            collection_results.append(result)
+            save_task(state)
+
+        for scenario in DELIVERY_HTTP_SCENARIOS:
+            collector = SCENARIO_COLLECTORS[scenario]
+            result = None
+            for plan in plans_by_scenario.get(scenario) or default_query_plan(state):
+                params = {
+                    "material_id": next_material_id(task_dir),
+                    "query": plan.query,
+                    "page_limit": http_page_limit,
+                    **plan.params,
+                }
+                try:
+                    result = collector(task_id=task_id, task_dir=task_dir, params=params)
+                except Exception as exc:
+                    result = _exception_result(scenario, exc)
+                collection_results.append(result.model_dump(mode="json"))
+                if result.materials or result.status not in {
+                    "no_results",
+                    "no_valid_materials",
+                    "collection_failed",
+                }:
+                    break
+            if result is not None:
+                _record_scenario_result(task_dir, state, scenario, result)
+                save_task(state)
+
+        for deferred in ["wiley_alz"]:
+            if deferred in state.scenario_statuses:
+                state.scenario_statuses[deferred].status = "deferred"
+                state.scenario_statuses[deferred].last_message = (
+                    "本期交付暂缓该信源；报告中必须明确标注，不能视为已完成采集。"
+                )
+        save_task(state)
+
+    evidence_result = generate_draft_evidence_cards(task_dir)
+    analysis_requests = create_analysis_requests(task_dir)
+    review_result = export_review(task_dir)
+    materials_report = build_report(task_dir, "materials")
+    feasibility_report = build_report(task_dir, "feasibility")
+    standard_delivery = build_standard_delivery(task_dir)
+    verification = verify_package(task_dir)
+    emit(
+        {
+            "collection": collection_results,
+            "network_preflight": network_status,
+            "evidence": evidence_result,
+            "analysis_requests": analysis_requests,
+            "review": review_result,
+            "reports": {
+                "materials": materials_report,
+                "feasibility": feasibility_report,
+            },
+            "standard_delivery": standard_delivery,
+            "verification": verification,
+            "deferred": ["wiley_alz"],
+        },
+        json_output,
+    )
+
+
+@app.command("site-profile")
+def site_profile_command(
+    scenario: str = typer.Option(..., "--scenario"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    try:
+        result = site_profile(scenario)
+    except KeyError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    emit(result, json_output)
+
+
+@app.command("record-site-observation")
+def record_site_observation_command(
+    task_id: str = typer.Option(..., "--task-id"),
+    scenario: str = typer.Option(..., "--scenario"),
+    observation_json: str = typer.Option(..., "--observation-json"),
+    output_root: Optional[Path] = typer.Option(None, "--output-root"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    root = output_root or default_output_root()
+    task_dir = find_task(root, task_id)
+    try:
+        observation = json.loads(observation_json)
+        if not isinstance(observation, dict):
+            raise ValueError("--observation-json must be a JSON object")
+        result = record_site_observation(task_dir, scenario, observation)
+    except (json.JSONDecodeError, ValueError, KeyError) as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    emit(result, json_output)
+
+
+@app.command("browser-workflow")
+def browser_workflow_command(
+    scenario: str = typer.Option(..., "--scenario"),
+    query: str = typer.Option("", "--query"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    try:
+        workflow = browser_workflow(scenario)
+    except KeyError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    result = {
+        **workflow,
+        "resolved_search_url": search_url_for_workflow(workflow, query) if query else workflow["entry_url"],
+        "user_action_required_zh": (
+            "需要用户在 Playwright 可见浏览器中完成登录或验证。"
+            if workflow.get("requires_user_login") or workflow.get("requires_persistent_session")
+            else "通常无需用户登录，但遇到验证或权限限制时必须由用户处理。"
+        ),
+    }
+    emit(result, json_output)
+
+
+@app.command("prepare-browser-session")
+def prepare_browser_session_command(
+    task_id: str = typer.Option(..., "--task-id"),
+    scenario: str = typer.Option(..., "--scenario"),
+    profile_scope: str = typer.Option("user", "--profile-scope"),
+    output_root: Optional[Path] = typer.Option(None, "--output-root"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    root = output_root or default_output_root()
+    task_dir = find_task(root, task_id)
+    try:
+        result = prepare_browser_session(task_dir, scenario, profile_scope=profile_scope)
+    except KeyError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    emit(result, json_output)
+
+
+@app.command("open-browser-session")
+def open_browser_session_command(
+    task_id: str = typer.Option(..., "--task-id"),
+    scenario: str = typer.Option(..., "--scenario"),
+    url: Optional[str] = typer.Option(None, "--url"),
+    headless: bool = typer.Option(False, "--headless"),
+    background: bool = typer.Option(False, "--background"),
+    profile_scope: str = typer.Option("user", "--profile-scope"),
+    output_root: Optional[Path] = typer.Option(None, "--output-root"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    root = output_root or default_output_root()
+    task_dir = find_task(root, task_id)
+    try:
+        result = open_browser_session(
+            task_dir,
+            scenario,
+            url=url,
+            headless=headless,
+            background=background,
+            profile_scope=profile_scope,
+        )
+    except KeyError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    emit(result, json_output)
+
+
+@app.command("probe-browser-workflow")
+def probe_browser_workflow_command(
+    task_id: str = typer.Option(..., "--task-id"),
+    scenario: str = typer.Option(..., "--scenario"),
+    query: str = typer.Option(..., "--query"),
+    headless: bool = typer.Option(True, "--headless/--headed"),
+    profile_scope: str = typer.Option("user", "--profile-scope"),
+    output_root: Optional[Path] = typer.Option(None, "--output-root"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    root = output_root or default_output_root()
+    task_dir = find_task(root, task_id)
+    try:
+        result = probe_browser_workflow(
+            task_dir,
+            scenario,
+            query=query,
+            headless=headless,
+            profile_scope=profile_scope,
+        )
+    except KeyError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    emit(result, json_output)
+
+
+@app.command("run-browser-workflow")
+def run_browser_workflow_command(
+    task_id: str = typer.Option(..., "--task-id"),
+    scenario: str = typer.Option(..., "--scenario"),
+    query: str = typer.Option(..., "--query"),
+    methodology: str = typer.Option("", "--methodology"),
+    headless: bool = typer.Option(True, "--headless/--headed"),
+    page_limit: int = typer.Option(1, "--page-limit", min=1),
+    launch_mode: str = typer.Option("playwright", "--launch-mode"),
+    profile_scope: str = typer.Option("user", "--profile-scope"),
+    output_root: Optional[Path] = typer.Option(None, "--output-root"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    root = output_root or default_output_root()
+    task_dir = find_task(root, task_id)
+    state = load_task(task_dir)
+    try:
+        browser_kwargs = {
+            "query": query,
+            "task_id": task_id,
+            "headless": headless,
+            "page_limit": page_limit,
+            "methodology": methodology,
+            "launch_mode": launch_mode,
+        }
+        if _supports_kwarg(run_browser_workflow, "profile_scope"):
+            browser_kwargs["profile_scope"] = profile_scope
+        result = run_browser_workflow(task_dir, scenario, **browser_kwargs)
+    except KeyError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+
+    if scenario in state.scenario_statuses:
+        materials = [
+            material if isinstance(material, Material) else Material.model_validate(material)
+            for material in result.get("materials", [])
+        ]
+        record_materials(task_dir, materials)
+        state.scenario_statuses[scenario].status = result["status"]
+        state.scenario_statuses[scenario].material_count += len(materials)
+        state.scenario_statuses[scenario].last_message = result["message_zh"]
+        if result["status"] not in {"completed", "search_results"}:
+            state.scenario_statuses[scenario].failure_count += 1
+    save_task(state)
+    append_jsonl(
+        task_dir / "logs" / "events.jsonl",
+        {
+            "time": now_iso(),
+            "event": "browser_workflow_ran",
+            "scenario_id": scenario,
+            "status": result["status"],
+            "target_url": result["target_url"],
+            "final_url": result["final_url"],
+            "snapshot_paths": result["snapshot_paths"],
+            "message_zh": result["message_zh"],
+        },
+    )
+    emit(result, json_output)
+
+
+@app.command("scout-browser-workflow")
+def scout_browser_workflow_command(
+    task_id: str = typer.Option(..., "--task-id"),
+    scenario: str = typer.Option(..., "--scenario"),
+    query: str = typer.Option(..., "--query"),
+    headless: bool = typer.Option(True, "--headless/--headed"),
+    page_limit: int = typer.Option(1, "--page-limit", min=1),
+    launch_mode: str = typer.Option("playwright", "--launch-mode"),
+    profile_scope: str = typer.Option("user", "--profile-scope"),
+    output_root: Optional[Path] = typer.Option(None, "--output-root"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    root = output_root or default_output_root()
+    task_dir = find_task(root, task_id)
+    try:
+        scout_kwargs = {
+            "query": query,
+            "headless": headless,
+            "page_limit": page_limit,
+            "launch_mode": launch_mode,
+        }
+        if _supports_kwarg(scout_browser_workflow, "profile_scope"):
+            scout_kwargs["profile_scope"] = profile_scope
+        result = scout_browser_workflow(task_dir, scenario, **scout_kwargs)
+    except KeyError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    append_jsonl(
+        task_dir / "logs" / "events.jsonl",
+        {
+            "time": now_iso(),
+            "event": "browser_workflow_scouted",
+            "scenario_id": scenario,
+            "status": result["status"],
+            "target_url": result["target_url"],
+            "final_url": result["final_url"],
+            "snapshot_paths": result["snapshot_paths"],
+            "message_zh": result["message_zh"],
+        },
+    )
+    emit(result, json_output)
+
+
+def main() -> None:
+    app()
+
+
+if __name__ == "__main__":
+    main()
