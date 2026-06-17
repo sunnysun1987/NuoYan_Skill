@@ -1,5 +1,6 @@
 from ivd_research.reports import (
     build_project_analysis_sections,
+    normalize_evidence_cards,
     normalize_materials,
 )
 
@@ -28,10 +29,10 @@ def _literature_material():
                 },
                 {
                     "label": "Results",
-                    "text": "The assay showed high diagnostic accuracy with AUC, sensitivity, and specificity endpoints.",
+                    "text": "The assay showed high diagnostic accuracy with AUC 0.92, sensitivity 91%, and specificity 88%.",
                 },
             ],
-            "abstract": "Objective: To evaluate plasma p-tau217.\nMethods: A blood-based immunoassay was compared with amyloid PET.\nResults: The assay showed high diagnostic accuracy.",
+            "abstract": "Objective: To evaluate plasma p-tau217.\nMethods: A blood-based immunoassay was compared with amyloid PET.\nResults: The assay showed high diagnostic accuracy with AUC 0.92, sensitivity 91%, and specificity 88%.",
             "keywords": ["Alzheimer disease", "blood biomarkers", "p-tau217"],
         },
         "download_status": "not_available",
@@ -51,6 +52,53 @@ def test_normalize_materials_preserves_structured_abstract():
         "label": "Objective",
         "text": "To evaluate plasma p-tau217 for amyloid pathology detection.",
     }
+    assert material["abstract_sections_translated"] == []
+    assert material["parameter_items"]
+
+
+def test_chinese_reading_version_is_disabled_even_with_translation_cache(tmp_path):
+    material = _literature_material()
+    material["raw_fields"]["abstract_sections"] = [
+        {
+            "label": "Results",
+            "text": (
+                "First sentence reports amyloid PET. "
+                "Second sentence reports plasma biomarkers. "
+                "Third sentence reports AUC 0.92. "
+                "Fourth sentence reports disease progression over time."
+            ),
+        }
+    ]
+
+    normalized = normalize_materials([material], [], task_dir=tmp_path)
+
+    assert normalized[0]["abstract_sections_translated"] == []
+
+
+def test_key_evidence_display_facts_exclude_section_blocks():
+    normalized = normalize_evidence_cards(
+        [
+            {
+                "title": "Blood biomarker evidence",
+                "summary": "Blood biomarker evidence summary.",
+                "material_type": "literature",
+                "evidence_strength": "needs_review",
+                "key_facts": [
+                    "期刊：JAMA Neurology",
+                    "样本类型：血浆",
+                    "Abstract[Results]：AUC 0.92 with sensitivity 91%.",
+                    "Keywords：Alzheimer disease；blood biomarkers",
+                    "中文译文[结果]：AUC 0.92。",
+                    "参数[AUC]：0.92",
+                ],
+            }
+        ]
+    )
+
+    card = normalized[0]
+    assert card["display_facts"] == ["样本类型：血浆"]
+    assert card["translation_facts"] == []
+    assert card["parameter_facts"] == ["参数[AUC]：0.92"]
 
 
 def test_project_analysis_uses_literature_signals_and_current_marker():

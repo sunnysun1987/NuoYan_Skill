@@ -5,6 +5,7 @@ from pydantic import ValidationError
 
 from .jsonl import append_jsonl, read_json, read_jsonl
 from .models import EvidenceCard
+from .translation import parameter_lines
 
 
 SECTION_BY_MATERIAL_TYPE = {
@@ -145,7 +146,12 @@ def _append_fact(facts: list[str], label: str, value: str) -> None:
         facts.append(f"{label}：{value}")
 
 
-def _draft_review_facts(material: dict[str, Any], excerpt: str) -> list[str]:
+def _draft_review_facts(
+    material: dict[str, Any],
+    excerpt: str,
+    *,
+    task_dir: Path | None = None,
+) -> list[str]:
     raw = material.get("raw_fields") or {}
     facts: list[str] = []
     material_type = material.get("material_type", "unknown")
@@ -176,6 +182,8 @@ def _draft_review_facts(material: dict[str, Any], excerpt: str) -> list[str]:
 
     if excerpt:
         facts.append(f"摘录线索：{excerpt[:240]}")
+        for line in parameter_lines(excerpt):
+            facts.append(f"摘录参数：{line}")
     return facts
 
 
@@ -201,7 +209,7 @@ def build_draft_evidence_card(
     title = material.get("title") or material.get("material_id", "")
     material_type = material.get("material_type", "unknown")
     source_location = source_path or location or "material_record"
-    review_facts = _draft_review_facts(material, excerpt)
+    review_facts = _draft_review_facts(material, excerpt, task_dir=task_dir)
     summary_detail = "；".join(review_facts[:4])
     summary = f"自动草稿证据卡：{title}"
     if summary_detail:
@@ -369,6 +377,26 @@ def export_evidence_card_files(task_dir: Path, card: dict[str, Any]) -> None:
         if str(fact).startswith("Abstract")
         or str(fact).startswith("Keywords")
     ]
+    parameter_lines_ = [
+        fact
+        for fact in (card.get("key_facts") or card.get("facts") or [])
+        if str(fact).startswith("参数")
+        or str(fact).startswith("摘录参数")
+    ]
+    section_prefixes = (
+        "Abstract",
+        "Keywords",
+        "中文译文",
+        "摘录中文译文",
+        "参数",
+        "摘录参数",
+        "摘录线索",
+    )
+    general_fact_lines = [
+        fact
+        for fact in (card.get("key_facts") or card.get("facts") or [])
+        if not str(fact).startswith(section_prefixes)
+    ]
     markdown = "\n".join(
         [
             f"# {card.get('title', card_id)}",
@@ -387,10 +415,13 @@ def export_evidence_card_files(task_dir: Path, card: dict[str, Any]) -> None:
             str(card.get("evidence_conclusion", "")),
             "",
             "## 关键事实",
-            "\n".join(f"- {fact}" for fact in (card.get("key_facts") or card.get("facts") or [])),
+            "\n".join(f"- {fact}" for fact in general_fact_lines) if general_fact_lines else "暂无独立关键事实。",
             "",
             "## 结构化 Abstract",
             "\n".join(f"- {line}" for line in abstract_lines) if abstract_lines else "未解析到结构化 Abstract。",
+            "",
+            "## 参数要点",
+            "\n".join(f"- {line}" for line in parameter_lines_) if parameter_lines_ else "未识别到明确参数。",
             "",
             "## 关键摘录",
             "\n".join(excerpt_lines) if excerpt_lines else "暂无关键摘录。",

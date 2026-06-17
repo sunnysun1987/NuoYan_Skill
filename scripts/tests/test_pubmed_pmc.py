@@ -144,6 +144,41 @@ def test_parse_pubmed_articles_extracts_evidence_fields():
     assert "87654321" in formatted
 
 
+def test_evidence_card_markdown_contains_translation_and_parameters(tmp_path: Path):
+    task_dir = tmp_path / "task"
+    create_task_directories(task_dir)
+    material = Material(
+        material_id="MAT-000001",
+        task_id="TASK-1",
+        source_scenario="pubmed_literature",
+        material_type="literature",
+        title="Plasma amyloid beta 42/40 for Alzheimer disease diagnosis",
+        collection_time="2026-06-17T00:00:00+08:00",
+        raw_fields={
+            "pmid": "12345678",
+            "abstract_sections": [
+                {
+                    "label": "Results",
+                    "text": "The assay showed AUC 0.92, sensitivity 91%, and specificity 88% for Alzheimer disease pathology.",
+                }
+            ],
+            "abstract": "The assay showed AUC 0.92, sensitivity 91%, and specificity 88%.",
+        },
+    )
+    append_jsonl(task_dir / "data" / "materials.jsonl", material.model_dump(mode="json"))
+    card = build_draft_evidence_card(task_dir, material.model_dump(mode="json"), "EC-000001")
+    write_json(task_dir / "staging" / "evidence_cards" / "EC-000001.json", card.model_dump(mode="json"))
+
+    from ivd_research.evidence import commit_staged_evidence
+
+    commit_staged_evidence(task_dir)
+    markdown = (task_dir / "evidence_cards" / "markdown" / "EC-000001.md").read_text(encoding="utf-8")
+
+    assert "## 中文阅读版" not in markdown
+    assert "## 参数要点" in markdown
+    assert "AUC" in markdown
+
+
 def test_parse_pmc_articles_extracts_fulltext_fields():
     articles = parse_pmc_articles(PMC_XML)
 

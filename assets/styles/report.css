@@ -461,6 +461,39 @@ li { margin: 4px 0; }
   color: var(--text-primary);
 }
 
+.translation-block {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid rgba(13,123,126,0.18);
+  border-left: 4px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: #f7fbfa;
+}
+.translation-block h4 {
+  margin-top: 0;
+  color: var(--accent);
+}
+.translation-block p {
+  margin: 8px 0;
+  color: var(--text-secondary);
+}
+.parameter-block {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--info);
+  border-radius: var(--radius-sm);
+  background: #f8f9fb;
+}
+.parameter-block h4 {
+  margin-top: 0;
+  color: var(--info);
+}
+.parameter-block .fact-list,
+.translation-block .fact-list {
+  margin-bottom: 0;
+}
+
 .analysis-toc {
   columns: 2;
   column-gap: 56px;

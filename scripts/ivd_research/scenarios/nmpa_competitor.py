@@ -60,7 +60,7 @@ def collect(task_id, task_dir, params):
     try:
         from .nmpa_browser_api import collect_nmpa_headless
 
-        return collect_nmpa_headless(
+        edge_result = collect_nmpa_headless(
             task_dir=Path(task_dir),
             task_id=task_id,
             query=query,
@@ -68,10 +68,66 @@ def collect(task_id, task_dir, params):
             methodology=methodology,
             page_limit=int(params.get("page_limit", 0) or 0),
         )
+        if edge_result.status == "completed" or "未找到 Edge" not in edge_result.message_zh:
+            return edge_result
     except ImportError:
         pass
+    except Exception:
+        pass
 
-    # Strategy 3: no Playwright / no Edge available
+    # Strategy 3: Playwright DOM fallback when Edge is unavailable.
+    try:
+        from playwright.sync_api import sync_playwright
+        from .nmpa_dom_collect import collect_nmpa_dom
+
+        start_index = _material_start_index(str(material_id))
+        page_limit = int(params.get("page_limit", 0) or 0) or 5
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(headless=True)
+            context = browser.new_context(locale="zh-CN")
+            page = context.new_page()
+            try:
+                material_dicts, _, errors = collect_nmpa_dom(
+                    task_dir=Path(task_dir),
+                    task_id=task_id,
+                    page=page,
+                    context=context,
+                    query=query,
+                    methodology=methodology,
+                    page_limit=page_limit,
+                    start_index=start_index,
+                )
+            finally:
+                context.close()
+                browser.close()
+        materials = [Material.model_validate(item) for item in material_dicts]
+        if materials:
+            return ScenarioResult(
+                status="completed",
+                materials=materials,
+                message_zh=f"NMPA Playwright DOM 兜底采集完成，解析竞品/注册材料 {len(materials)} 条。",
+                collection_errors=errors,
+            )
+        return ScenarioResult(
+            status=FailureType.NO_RESULTS.value,
+            failure_type=FailureType.NO_RESULTS,
+            message_zh=(
+                f"NMPA 已在 Edge 缺失时改用 Playwright DOM 兜底检索，但未查询到与“{query}”匹配的注册材料。"
+                "建议缩小到产品核心名、检测项目或方法学后重试。"
+            ),
+            collection_errors=errors,
+        )
+    except Exception as exc:
+        return ScenarioResult(
+            status=FailureType.NEEDS_MANUAL_REVIEW.value,
+            failure_type=FailureType.NEEDS_MANUAL_REVIEW,
+            message_zh=(
+                "NMPA Edge 不可用，Playwright DOM 兜底也未完成。"
+                f"建议安装 Microsoft Edge 或使用更窄检索词后人工复核。错误：{type(exc).__name__}: {exc}"
+            ),
+        )
+
+    # Strategy 4: no Playwright / no Edge available
     return ScenarioResult(
         status=FailureType.NEEDS_MANUAL_REVIEW.value,
         failure_type=FailureType.NEEDS_MANUAL_REVIEW,
@@ -80,6 +136,11 @@ def collect(task_id, task_dir, params):
             "请安装：pip install playwright && playwright install chromium"
         ),
     )
+
+
+def _material_start_index(material_id: str) -> int:
+    match = re.search(r"MAT-(\d+)", str(material_id or ""))
+    return int(match.group(1)) if match else 1
 
 
 def parse_nmpa_result_list(html: str, base_url: str) -> list[dict[str, Any]]:

@@ -8,6 +8,7 @@ from jinja2 import Template
 from .jsonl import append_jsonl, read_json, read_jsonl
 from .quality import build_collection_alerts
 from .status import now_iso
+from .translation import extract_parameters
 
 
 REPORT_SECTIONS = [
@@ -43,6 +44,24 @@ STATUS_LABELS = {
     "deferred": "deferred / 暂缓",
     "draft": "draft / 草稿",
 }
+
+
+def report_display_title(topic: str) -> str:
+    title = str(topic or "").strip() or "项目"
+    suffix_replacements = [
+        ("立项可行性全量验证调研", "调研分析综述"),
+        ("立项可行性调研", "调研分析综述"),
+        ("可行性全量验证调研", "调研分析综述"),
+        ("可行性调研", "调研分析综述"),
+        ("立项调研", "调研分析综述"),
+        ("调研", "调研分析综述"),
+    ]
+    for suffix, replacement in suffix_replacements:
+        if title.endswith(suffix):
+            return f"{title[:-len(suffix)]}{replacement}"
+    if title.endswith("综述"):
+        return title
+    return f"{title}调研分析综述"
 
 
 def asset_root() -> Path:
@@ -223,7 +242,12 @@ def evidence_by_material(evidence_cards: list[dict]) -> dict[str, list[dict]]:
     return grouped
 
 
-def normalize_materials(materials: list[dict], evidence_cards: list[dict] | None = None) -> list[dict]:
+def normalize_materials(
+    materials: list[dict],
+    evidence_cards: list[dict] | None = None,
+    *,
+    task_dir: Path | None = None,
+) -> list[dict]:
     from .constants import EVIDENCE_STRENGTH_LABELS, MATERIAL_TYPE_LABELS
     from .scenarios.registry import all_scenarios
 
@@ -296,6 +320,7 @@ def normalize_materials(materials: list[dict], evidence_cards: list[dict] | None
             card.get("summary", "") for card in material_cards if card.get("summary")
         ]
         row["abstract_sections_display"] = _structured_abstract_items(raw)
+        row["abstract_sections_translated"] = []
         row["structured_abstract"] = _structured_abstract_text(raw)
         row["structured_summary"] = (
             row["structured_abstract"]
@@ -304,6 +329,10 @@ def normalize_materials(materials: list[dict], evidence_cards: list[dict] | None
                 or " ".join(row.get("evidence_summaries") or [])
             )
         )
+        display_text = row["structured_summary"] or _first_raw(raw, "scope", "basic_info_text", "full_visible_text")
+        row["summary_translation_zh"] = ""
+        row["summary_translation_status"] = "not_configured" if display_text else "not_needed"
+        row["parameter_items"] = extract_parameters(display_text)
         row["status_text"] = " ".join(
             str(value or "")
             for value in [
@@ -338,15 +367,33 @@ def clean_evidence_summary(text: str) -> str:
     return cleaned or "已采集材料线索，需复核后形成可引用结论。"
 
 
+def is_section_fact(text: str) -> bool:
+    value = str(text or "").strip()
+    return value.startswith(
+        (
+            "Abstract[",
+            "Keywords",
+            "中文译文",
+            "摘录中文译文",
+            "参数",
+            "摘录参数",
+            "摘录线索",
+        )
+    )
+
+
 def display_key_facts(items: list[str], summary: str) -> list[str]:
     facts: list[str] = []
     seen = set()
     low_value = {
         "已采集材料线索，需复核后形成可引用结论。",
+        "已采集材料线索，需复核后形成可引用结论",
         "全文状态：completed",
         "全文状态: completed",
     }
     for item in items:
+        if is_section_fact(item):
+            continue
         fact = clean_evidence_summary(item)
         if not fact or fact in low_value:
             continue
@@ -377,6 +424,13 @@ def normalize_evidence_cards(evidence_cards: list[dict]) -> list[dict]:
             if clean_evidence_summary(item)
         ]
         row["display_facts"] = display_key_facts(row["key_facts"], row["summary"])
+        parameter_facts = [
+            fact
+            for fact in row["key_facts"]
+            if fact.startswith("参数") or fact.startswith("摘录参数")
+        ]
+        row["translation_facts"] = []
+        row["parameter_facts"] = parameter_facts[:10]
         # Map internal keys to Chinese display labels
         row["material_type_zh"] = MATERIAL_TYPE_LABELS.get(
             row.get("material_type", ""), row.get("material_type", "")
@@ -713,7 +767,12 @@ def build_search_profile(task: dict) -> list[dict[str, str]]:
     date_range = confirmations.get("literature_date_range") or {}
     if isinstance(date_range, dict):
         date_text = " 至 ".join(
-            part for part in [str(date_range.get("start") or ""), str(date_range.get("end") or "")] if part
+            part
+            for part in [
+                str(date_range.get("start") or date_range.get("from") or ""),
+                str(date_range.get("end") or date_range.get("to") or ""),
+            ]
+            if part
         )
     else:
         date_text = str(date_range or "")
@@ -779,8 +838,30 @@ def _sample_titles(materials: list[dict], terms: list[str], limit: int = 4) -> s
     return "；".join(titles) if titles else "暂无直接题名线索"
 
 
-def _target_marker(materials: list[dict]) -> str:
+def _target_marker(materials: list[dict], confirmations: dict | None = None) -> str:
+    profile_text = ""
+    if confirmations:
+        profile_text = " ".join(
+            str(confirmations.get(key, "") or "")
+            for key in [
+                "primary_query",
+                "english_keywords",
+                "chinese_synonyms",
+                "methodology",
+                "platform",
+                "competitor_scope",
+                "patent_scope",
+            ]
+        ).lower()
+    if any(term in profile_text for term in ["aβ42/40", "abeta42/40", "amyloid beta 42/40", "aβ40", "aβ42"]):
+        return "Aβ42/40"
+    if "p-tau217" in profile_text or "ptau217" in profile_text or "tau217" in profile_text:
+        return "p-Tau217"
+    if "p-tau181" in profile_text or "ptau181" in profile_text or "tau181" in profile_text:
+        return "p-Tau181"
     text = " ".join(item.get("title", "") for item in materials[:200]).lower()
+    if any(term in text for term in ["aβ42/40", "abeta42/40", "amyloid beta 42/40"]):
+        return "Aβ42/40"
     if "217" in text:
         return "p-Tau217"
     if "181" in text:
@@ -790,14 +871,17 @@ def _target_marker(materials: list[dict]) -> str:
     return "目标标志物"
 
 
-def build_literature_signal_summary(literature_materials: list[dict]) -> dict[str, Any]:
+def build_literature_signal_summary(
+    literature_materials: list[dict],
+    confirmations: dict | None = None,
+) -> dict[str, Any]:
     total = len(literature_materials)
     pubmed = sum(1 for item in literature_materials if item.get("source_scenario") == "pubmed_literature")
     pmc = sum(1 for item in literature_materials if item.get("source_scenario") == "pmc_fulltext")
     extracted = sum(1 for item in literature_materials if item.get("extracted_text_path"))
     with_abstract = sum(1 for item in literature_materials if (item.get("raw_fields") or {}).get("abstract"))
     with_structured = sum(1 for item in literature_materials if (item.get("raw_fields") or {}).get("abstract_sections"))
-    marker = _target_marker(literature_materials)
+    marker = _target_marker(literature_materials, confirmations)
     topics = {
         "blood": _count_topic(literature_materials, ["blood", "plasma", "serum", "血浆", "血清", "血液"]),
         "csf": _count_topic(literature_materials, ["CSF", "cerebrospinal fluid", "脑脊液"]),
@@ -848,8 +932,9 @@ def build_project_analysis_sections(
     standard_materials: list[dict],
     patent_materials: list[dict],
     materials: list[dict],
+    confirmations: dict | None = None,
 ) -> list[dict[str, Any]]:
-    signals = build_literature_signal_summary(literature_materials)
+    signals = build_literature_signal_summary(literature_materials, confirmations)
     marker = signals["marker"]
     topics = signals["topics"]
     examples = signals["examples"]
@@ -1046,7 +1131,7 @@ def build_business_action_rows(
             {
                 "priority": "P0",
                 "owner": "注册 / 产品",
-                "action": f"补查 NMPA 同类产品，确认是否已有 AD 血液 {marker}/p-tau 类 IVD 注册路径或相近产品。",
+                "action": f"补查 NMPA 同类产品，确认是否已有 AD 血液 {marker} 或相近 AD 标志物 IVD 注册路径/产品。",
                 "acceptance": "形成同类产品清单，至少包含注册证编号、注册人、方法学、样本类型、预期用途和有效期。",
             }
         )
@@ -1184,7 +1269,11 @@ def build_report(task_dir: Path, report_type: str) -> dict:
     report_sections = normalize_report_sections(
         list(read_jsonl(task_dir / "data" / "report_sections.jsonl"))
     )
-    materials = normalize_materials(list(read_jsonl(task_dir / "data" / "materials.jsonl")), evidence_cards)
+    materials = normalize_materials(
+        list(read_jsonl(task_dir / "data" / "materials.jsonl")),
+        evidence_cards,
+        task_dir=task_dir,
+    )
     scenario_statuses = normalize_scenario_statuses(
         list((task.get("scenario_statuses") or {}).values())
     )
@@ -1286,6 +1375,7 @@ def build_standard_report(task_dir: Path, output: Path | None = None) -> dict:
     materials = normalize_materials(
         list(read_jsonl(task_dir / "data" / "materials.jsonl")),
         evidence_cards,
+        task_dir=task_dir,
     )
     materials_by_id = {item.get("material_id"): item for item in materials}
     scenario_statuses = normalize_scenario_statuses(
@@ -1461,6 +1551,7 @@ def build_standard_report(task_dir: Path, output: Path | None = None) -> dict:
         standard_materials=standard_materials,
         patent_materials=patent_materials,
         materials=materials,
+        confirmations=task.get("confirmations") or {},
     )
     registration_materials = (
         regulatory_materials + competitor_materials + standard_materials + patent_materials
@@ -1471,6 +1562,7 @@ def build_standard_report(task_dir: Path, output: Path | None = None) -> dict:
     html = Template(template_path.read_text(encoding="utf-8")).render(
         task_id=task["task_id"],
         topic=task["topic"],
+        report_title=report_display_title(task["topic"]),
         materials=materials,
         materials_by_id=materials_by_id,
         evidence_cards=evidence_cards[:SOURCE_DISPLAY_LIMIT],

@@ -120,11 +120,16 @@ def file_manifest(task_dir: Path) -> list[dict]:
         relative = path.relative_to(task_dir)
         if relative.parts and relative.parts[0] == "packages":
             continue
+        try:
+            size = path.stat().st_size
+            digest = sha256_file(path)
+        except FileNotFoundError:
+            continue
         files.append(
             {
                 "path": str(relative),
-                "size": path.stat().st_size,
-                "sha256": sha256_file(path),
+                "size": size,
+                "sha256": digest,
             }
         )
     return files

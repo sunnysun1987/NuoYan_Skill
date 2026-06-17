@@ -828,8 +828,8 @@ def _with_pubmed_date_filter(query: str, date_range: Any) -> str:
     start = ""
     end = ""
     if isinstance(date_range, dict):
-        start = str(date_range.get("start") or "").strip()
-        end = str(date_range.get("end") or "").strip()
+        start = str(date_range.get("start") or date_range.get("from") or "").strip()
+        end = str(date_range.get("end") or date_range.get("to") or "").strip()
     elif isinstance(date_range, str) and "TO" in date_range:
         left, right = date_range.split("TO", 1)
         start = left.strip(" []")

@@ -60,6 +60,7 @@ from .status import (
     status_payload,
     now_iso,
 )
+from .translation import translate_materials
 
 app = typer.Typer(name="nuoyan", no_args_is_help=True)
 
@@ -216,6 +217,23 @@ def _run_network_preflight(task_dir: Path, *, enabled: bool, action: str) -> dic
         },
     )
     return result
+
+
+def _browser_launch_modes(preferred: str) -> list[str]:
+    modes = []
+    preferred = str(preferred or "playwright")
+    for mode in [preferred, "playwright"]:
+        if mode and mode not in modes:
+            modes.append(mode)
+    return modes
+
+
+def _is_edge_missing_result(result: dict) -> bool:
+    text = " ".join(
+        str(result.get(key, "") or "")
+        for key in ["message_zh", "blocked_reason", "fallback_reason", "final_url"]
+    )
+    return "Microsoft Edge executable was not found" in text or "未找到 Edge" in text
 
 
 def _record_browser_result(task_dir: Path, state, scenario: str, result: dict) -> None:
@@ -501,6 +519,34 @@ def build_report_command(
     emit(result, json_output)
 
 
+@app.command("translate-materials")
+def translate_materials_command(
+    task_id: str = typer.Option(..., "--task-id"),
+    output_root: Optional[Path] = typer.Option(None, "--output-root"),
+    limit: int = typer.Option(0, "--limit", help="最多新增翻译段落数；0 表示不限。"),
+    force: bool = typer.Option(False, "--force", help="重新生成已有缓存翻译。"),
+    provider: str = typer.Option("", "--provider", help="翻译引擎标识，默认 openai。"),
+    model: str = typer.Option("", "--model", help="OpenAI-compatible 模型名。"),
+    base_url: str = typer.Option("", "--base-url", help="OpenAI-compatible API base URL。"),
+    api_key: str = typer.Option("", "--api-key", help="临时 API key；优先使用环境变量，避免写入命令历史。"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    root = output_root or default_output_root()
+    task_dir = find_task(root, task_id)
+    emit(
+        translate_materials(
+            task_dir,
+            limit=limit,
+            force=force,
+            provider=provider,
+            model=model,
+            base_url=base_url,
+            api_key=api_key,
+        ),
+        json_output,
+    )
+
+
 @app.command("verify-package")
 def verify_package_command(
     task_id: str = typer.Option(..., "--task-id"),
@@ -654,23 +700,37 @@ def run_delivery_pipeline_command(
             action="run_delivery_pipeline",
         )
         for scenario in DELIVERY_BROWSER_SCENARIOS:
-            plan = (plans_by_scenario.get(scenario) or default_query_plan(state))[0]
-            browser_kwargs = {
-                "query": plan.query,
-                "task_id": task_id,
-                "headless": headless,
-                "page_limit": browser_page_limit,
-                "methodology": str(plan.params.get("methodology", "")),
-                "launch_mode": launch_mode,
-            }
-            if _supports_kwarg(run_browser_workflow, "profile_scope"):
-                browser_kwargs["profile_scope"] = profile_scope
-            try:
-                result = run_browser_workflow(task_dir, scenario, **browser_kwargs)
-            except Exception as exc:
-                result = _exception_result(scenario, exc).model_dump(mode="json")
+            result = None
+            for plan in plans_by_scenario.get(scenario) or default_query_plan(state):
+                for mode in _browser_launch_modes(launch_mode):
+                    browser_kwargs = {
+                        "query": plan.query,
+                        "task_id": task_id,
+                        "headless": headless,
+                        "page_limit": browser_page_limit,
+                        "methodology": str(plan.params.get("methodology", "")),
+                        "launch_mode": mode,
+                    }
+                    if _supports_kwarg(run_browser_workflow, "profile_scope"):
+                        browser_kwargs["profile_scope"] = profile_scope
+                    try:
+                        result = run_browser_workflow(task_dir, scenario, **browser_kwargs)
+                    except Exception as exc:
+                        result = _exception_result(scenario, exc).model_dump(mode="json")
+                    result["query_role"] = plan.params.get("query_role", "")
+                    result["attempted_query"] = plan.query
+                    result["attempted_launch_mode"] = mode
+                    collection_results.append(result)
+                    if not _is_edge_missing_result(result) or mode == "playwright":
+                        break
+                if result and (
+                    result.get("materials")
+                    or result.get("status") not in {"no_results", "collection_failed"}
+                ):
+                    break
+            if result is None:
+                continue
             _record_browser_result(task_dir, state, scenario, result)
-            collection_results.append(result)
             save_task(state)
 
         for scenario in DELIVERY_HTTP_SCENARIOS:

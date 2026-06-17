@@ -132,6 +132,31 @@ def _en_business_query(state: Any) -> str:
     )
 
 
+def _openalex_query(state: Any) -> str:
+    import re as _re
+
+    query = _en_business_query(state)
+    replacements = {
+        "AND": " ",
+        "OR": " ",
+    }
+    for old, new in replacements.items():
+        query = _re.sub(rf"\b{old}\b", new, query, flags=_re.IGNORECASE)
+    query = query.replace("*", " ")
+    query = _re.sub(r"[\"()（）]", " ", query)
+    query = _re.sub(r"\s+", " ", query).strip()
+    if len(query) > 220:
+        terms = []
+        for token in query.split():
+            normalized = token.strip(" ,;；")
+            if normalized and normalized.lower() not in {item.lower() for item in terms}:
+                terms.append(normalized)
+            if len(" ".join(terms)) >= 220:
+                break
+        query = " ".join(terms)
+    return query or _english_primary_query(state)
+
+
 def _english_primary_query(state: Any) -> str:
     return _english_query(state)
 
@@ -157,8 +182,8 @@ def _date_range_bounds(
     today: date | None = None,
 ) -> tuple[str, str]:
     if isinstance(date_range, dict):
-        start = str(date_range.get("start") or "").strip()
-        end = str(date_range.get("end") or "").strip()
+        start = str(date_range.get("start") or date_range.get("from") or "").strip()
+        end = str(date_range.get("end") or date_range.get("to") or "").strip()
         if start and end:
             return start, end
     if isinstance(date_range, str) and date_range.strip():
@@ -246,6 +271,7 @@ def _journal_plans(state: Any) -> list[ScenarioQueryPlan]:
 def scenario_query_plans(state: Any) -> dict[str, list[ScenarioQueryPlan]]:
     broad = _cn_business_query(state)
     primary = _primary_query(state)
+    short = _short_query(broad, max_terms=3)
     methodology = str(_confirmation(state, "methodology", "") or "").strip()
     patent_scope = str(_confirmation(state, "patent_scope", "全球") or "全球").strip()
     literature_date_range = _literature_date_range(state) or _confirmation(state, "literature_years", 5)
@@ -256,6 +282,10 @@ def scenario_query_plans(state: Any) -> dict[str, list[ScenarioQueryPlan]]:
     )
 
     common_broad = [ScenarioQueryPlan(query=broad, params={"query_role": "broad_cn"})]
+    if short and short != broad:
+        common_broad.append(ScenarioQueryPlan(query=short, params={"query_role": "short_cn"}))
+    if primary and primary not in {broad, short}:
+        common_broad.append(ScenarioQueryPlan(query=primary, params={"query_role": "primary_cn"}))
     return {
         "cmde_regulatory": common_broad,
         "standards_current": common_broad,
@@ -309,7 +339,7 @@ def scenario_query_plans(state: Any) -> dict[str, list[ScenarioQueryPlan]]:
         ],
         "openalex_literature": [
             ScenarioQueryPlan(
-                query=_en_business_query(state),
+                query=_openalex_query(state),
                 params={
                     "query_role": "openalex_keywords",
                     "retmax": literature_retmax,

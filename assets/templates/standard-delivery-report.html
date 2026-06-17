@@ -3,18 +3,18 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{ topic }} - 立项调研综合报告</title>
+  <title>{{ report_title }}</title>
   <style>{{ css }}</style>
 </head>
 <body>
 <main>
   <header class="page-header">
-    <h1>{{ topic }} - 立项调研综合报告</h1>
+    <h1>{{ report_title }}</h1>
     <p class="meta"><span>任务ID：{{ task_id }}</span><span>生成时间：{{ generated_at }}</span><span>报告版本：Nuoyan Skill V2.0</span></p>
   </header>
 
   <div class="tab-shell">
-    <nav class="tab-list" role="tablist" aria-label="立项调研综合报告页签">
+    <nav class="tab-list" role="tablist" aria-label="项目调研分析综述页签">
       <button class="tab-button active" type="button" data-tab-target="tab-overview">总览</button>
       <button class="tab-button" type="button" data-tab-target="tab-analysis">项目分析</button>
       <button class="tab-button" type="button" data-tab-target="tab-map">证据地图</button>
@@ -216,6 +216,16 @@
               {% endfor %}
             </ul>
             {% endif %}
+            {% if card.parameter_facts %}
+            <div class="parameter-block">
+              <h4>参数要点</h4>
+              <ul class="fact-list">
+                {% for fact in card.parameter_facts %}
+                <li>{{ fact }}</li>
+                {% endfor %}
+              </ul>
+            </div>
+            {% endif %}
             {% if source.abstract_sections_display %}
             <div class="abstract-block">
               <h4>结构化 Abstract</h4>
@@ -296,6 +306,16 @@
             </div>
             {% else %}
             <p>{{ material.structured_summary or "已采集题录线索，需复核后形成可引用结论。" }}</p>
+            {% if material.parameter_items %}
+            <div class="parameter-block">
+              <h4>参数要点</h4>
+              <ul class="fact-list">
+                {% for parameter in material.parameter_items %}
+                <li>{{ parameter.label }}：{{ parameter.value }}</li>
+                {% endfor %}
+              </ul>
+            </div>
+            {% endif %}
             {% endif %}
           </article>
           {% endfor %}
@@ -358,6 +378,16 @@
               <div><b>原文状态</b><span>{{ material.download_status_zh }}</span></div>
             </div>
             <p>{{ material.structured_summary or material.raw_fields.get("scope") or material.raw_fields.get("abstract") or material.raw_fields.get("basic_info_text") or "已形成材料线索，需业务复核后用于注册、竞品或专利判断。" }}</p>
+            {% if material.parameter_items %}
+            <div class="parameter-block">
+              <h4>参数要点</h4>
+              <ul class="fact-list">
+                {% for parameter in material.parameter_items %}
+                <li>{{ parameter.label }}：{{ parameter.value }}</li>
+                {% endfor %}
+              </ul>
+            </div>
+            {% endif %}
           </article>
           {% endfor %}
         {% else %}
