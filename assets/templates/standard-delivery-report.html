@@ -122,10 +122,10 @@
           <aside class="analysis-toc-panel">
             <div class="analysis-toc-head">
               <div>
-                <div class="toc-eyebrow">项目分析导航</div>
-                <h2>17 个研发立项判断问题</h2>
+                <div class="toc-eyebrow">项目分析</div>
+                <h2>章节目录</h2>
               </div>
-              <p>点击任一问题可跳转到对应分析章节。建议按顺序阅读，也可直接进入当前最关心的注册、竞品、技术或供应风险。</p>
+              <p>共 {{ project_analysis_sections|length }} 个判断问题，点击后跳转到对应章节。</p>
             </div>
             <div class="analysis-toc-grid">
             {% for section in project_analysis_sections %}
@@ -161,30 +161,30 @@
 
       <section class="tab-panel" id="tab-reading">
         <div class="metric-grid compact">
-          <button class="metric-card metric-link" type="button" data-jump-tab="tab-reading" data-jump-target="evidence-map" aria-label="查看已登记材料口径和证据地图">
+          <button class="metric-card metric-link" type="button" data-jump-tab="tab-reading" data-jump-target="evidence-map" aria-label="查看已登记材料说明和证据地图">
             <div class="metric-top"><div class="value">{{ materials|length }}</div><div class="metric-arrow">查看</div></div>
             <div class="label">已登记材料</div>
-            <p class="metric-definition">口径：已写入材料库的原始资料总数，含文献、法规、竞品、标准、专利和本地导入材料。</p>
+            <p class="metric-definition">已写入材料库的原始资料总数，含文献、法规、竞品、标准、专利和本地导入材料。</p>
           </button>
           <button class="metric-card metric-link" type="button" data-jump-tab="tab-screening" data-jump-target="screening-card-list" aria-label="查看筛选证据卡">
             <div class="metric-top"><div class="value">{{ screening_summary.total }}</div><div class="metric-arrow">查看</div></div>
             <div class="label">筛选证据卡</div>
-            <p class="metric-definition">口径：由材料抽取、去重并进入研发筛选工作台的证据卡数量。</p>
+            <p class="metric-definition">由材料抽取、去重并进入研发筛选工作台的证据卡数量。</p>
           </button>
           <button class="metric-card metric-link" type="button" data-jump-tab="tab-core" data-jump-target="core-card-list" aria-label="查看核心必读文献">
             <div class="metric-top"><div class="value info">{{ screening_summary.core }}</div><div class="metric-arrow">查看</div></div>
             <div class="label">核心必读</div>
-            <p class="metric-definition">口径：优先级为 A 的高价值证据卡，建议研发、医学和注册人员先复核。</p>
+            <p class="metric-definition">优先级为 A 的高价值证据卡，建议研发、医学和注册人员先复核。</p>
           </button>
           <button class="metric-card metric-link" type="button" data-jump-tab="tab-gaps" data-jump-target="gap-workbench" aria-label="查看受限场景和资料缺口">
             <div class="metric-top"><div class="value warn">{{ failed_scenarios|length }}</div><div class="metric-arrow">查看</div></div>
             <div class="label">受限场景</div>
-            <p class="metric-definition">口径：因未命中、登录、权限、站点限制或需人工复核而不能直接形成完整证据的来源场景。</p>
+            <p class="metric-definition">因未命中、登录、权限、站点限制或需人工复核而不能直接形成完整证据的来源场景。</p>
           </button>
           <button class="metric-card metric-link" type="button" data-jump-tab="tab-reading" data-jump-target="metric-facts" aria-label="查看指标事实明细">
             <div class="metric-top"><div class="value info">{{ knowledge_status.metric_fact_count }}</div><div class="metric-arrow">查看</div></div>
             <div class="label">指标事实</div>
-            <p class="metric-definition">口径：从证据中结构化抽取的样本量、灵敏度、特异性、AUC、Ct、LoD、OR/HR 等参数事实。</p>
+            <p class="metric-definition">从证据中结构化抽取的样本量、灵敏度、特异性、AUC、Ct、LoD、OR/HR 等参数事实。</p>
           </button>
         </div>
 
