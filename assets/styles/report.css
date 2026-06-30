@@ -1069,6 +1069,36 @@ a:hover { text-decoration: underline; }
   font-size: 13px;
   margin: 8px 0;
 }
+.translation-details {
+  border-color: rgba(45,140,94,0.22);
+  background: #fbfefc;
+}
+.translation-details summary {
+  color: var(--success);
+}
+.translation-item {
+  border-top: 1px solid var(--border-light);
+  margin-top: 8px;
+  padding-top: 8px;
+}
+.translation-item:first-of-type {
+  border-top: none;
+}
+.translation-label {
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 800;
+  margin-bottom: 4px;
+}
+.translation-item.not_configured {
+  background: var(--warn-light);
+  border: 1px solid rgba(184,114,12,0.18);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+}
+.translation-item.not_configured .translation-label {
+  color: var(--warn);
+}
 
 /* ============================================================
    Print

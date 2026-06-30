@@ -8,7 +8,7 @@ from jinja2 import Template
 from .jsonl import append_jsonl, read_json, read_jsonl
 from .quality import OPTIONAL_NOT_STARTED_SCENARIOS, build_collection_alerts
 from .status import now_iso
-from .translation import extract_parameters
+from .translation import extract_parameters, is_mostly_english, load_translation_cache, text_hash
 
 
 REPORT_SECTIONS = [
@@ -620,6 +620,42 @@ def build_business_collection_gaps(
         seen.add(key)
         rows.append(row)
     return rows
+
+
+def build_collection_gap_summary(
+    collection_gap_rows: list[dict[str, str]],
+    *,
+    materials: list[dict[str, Any]],
+    evidence_cards: list[dict[str, Any]],
+) -> dict[str, Any]:
+    owner_counts: dict[str, int] = {}
+    status_counts: dict[str, int] = {}
+    for row in collection_gap_rows:
+        owner = row.get("owner", "未分配")
+        status = row.get("status", "需处理")
+        owner_counts[owner] = owner_counts.get(owner, 0) + 1
+        status_counts[status] = status_counts.get(status, 0) + 1
+    priority = []
+    for owner in ["注册 / 产品", "知识产权 / 研发", "注册", "研发 / 质量", "医学 / 项目"]:
+        count = owner_counts.get(owner)
+        if count:
+            priority.append(f"{owner}：{count} 项")
+    if not priority and owner_counts:
+        priority = [f"{owner}：{count} 项" for owner, count in sorted(owner_counts.items())[:5]]
+    if collection_gap_rows:
+        headline = (
+            f"当前报告已形成 {len(materials)} 条材料和 {len(evidence_cards)} 张证据卡，"
+            f"但仍有 {len(collection_gap_rows)} 项资料缺口需要人工补充或复核。"
+        )
+    else:
+        headline = "当前未识别到需要单独处理的资料缺口。"
+    return {
+        "headline": headline,
+        "gap_count": len(collection_gap_rows),
+        "owner_counts": owner_counts,
+        "status_counts": status_counts,
+        "priority_text": "；".join(priority) if priority else "暂无重点责任角色。",
+    }
 
 
 def _by_type(materials: list[dict], material_type: str) -> list[dict]:
@@ -2022,6 +2058,57 @@ def _screening_excerpt_lines(card: dict, material: dict) -> list[str]:
     return [str(item)[:700] for item in excerpts[:4]]
 
 
+def _screening_translation_items(
+    card: dict,
+    material: dict,
+    translation_cache: dict[tuple[str, str, str], dict[str, Any]] | None = None,
+) -> list[dict[str, str]]:
+    material_id = str(material.get("material_id") or card.get("material_id") or "")
+    raw = material.get("raw_fields") or {}
+    sections = _structured_abstract_items(raw)
+    cache = translation_cache or {}
+    items: list[dict[str, str]] = []
+    for index, section in enumerate(sections[:3], start=1):
+        label = str(section.get("label") or "Abstract")
+        text = " ".join(str(section.get("text") or "").split())
+        if not text or not is_mostly_english(text):
+            continue
+        field = f"abstract:{index}:{label}"
+        cached = cache.get((material_id, field, text_hash(text)))
+        if cached and cached.get("translation_zh"):
+            items.append(
+                {
+                    "label": label,
+                    "status": "completed",
+                    "text": str(cached.get("translation_zh") or "").strip(),
+                    "note": "基于已缓存的专业中文翻译。",
+                }
+            )
+        else:
+            items.append(
+                {
+                    "label": label,
+                    "status": "not_configured",
+                    "text": "尚未生成专业中文阅读版。配置翻译引擎后运行 translate-materials，可在此处显示完整中文译文。",
+                    "note": "当前保留英文原文，避免输出未经生成/审校的伪译文。",
+                }
+            )
+    if not items:
+        for excerpt in card.get("excerpt_lines") or []:
+            text = " ".join(str(excerpt or "").split())
+            if is_mostly_english(text):
+                items.append(
+                    {
+                        "label": "Excerpt",
+                        "status": "not_configured",
+                        "text": "该摘录为英文材料，尚未生成专业中文阅读版。配置翻译引擎后可补齐。",
+                        "note": "当前保留英文原文用于追溯。",
+                    }
+                )
+                break
+    return items[:3]
+
+
 def _screening_review_points(card: dict, material: dict) -> list[str]:
     points = list(card.get("gap_tasks") or [])
     if not material.get("display_url"):
@@ -2035,8 +2122,14 @@ def _screening_review_points(card: dict, material: dict) -> list[str]:
     return points[:5] or ["自动归类结果需人工确认后再作为正式结论。"]
 
 
-def build_screening_cards(materials: list[dict], evidence_cards: list[dict]) -> list[dict[str, Any]]:
+def build_screening_cards(
+    materials: list[dict],
+    evidence_cards: list[dict],
+    *,
+    task_dir: Path | None = None,
+) -> list[dict[str, Any]]:
     materials_by_id = {item.get("material_id"): item for item in materials}
+    translation_cache = load_translation_cache(task_dir) if task_dir else {}
     screening_cards: list[dict[str, Any]] = []
     for index, source_card in enumerate(evidence_cards, start=1):
         material = materials_by_id.get(source_card.get("material_id"), {})
@@ -2073,6 +2166,7 @@ def build_screening_cards(materials: list[dict], evidence_cards: list[dict]) -> 
         )[:8]
         row["summary_lines"] = _screening_summary_lines(row, material)
         row["excerpt_lines"] = _screening_excerpt_lines(row, material)
+        row["translation_items"] = _screening_translation_items(row, material, translation_cache)
         row["review_points"] = _screening_review_points(row, material)
         row["data_text"] = " ".join(
             str(part or "")
@@ -2112,7 +2206,11 @@ def build_screening_cards(materials: list[dict], evidence_cards: list[dict]) -> 
     return screening_cards
 
 
-def build_filter_groups(screening_cards: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def build_filter_groups(
+    screening_cards: list[dict[str, Any]],
+    *,
+    include_priority: bool = True,
+) -> list[dict[str, Any]]:
     definitions = [
         ("priority", "证据优先级", "priority_label"),
         ("stage", "研发阶段", "stage"),
@@ -2126,6 +2224,8 @@ def build_filter_groups(screening_cards: list[dict[str, Any]]) -> list[dict[str,
         ("region", "地域/人群", "region"),
         ("evidence", "证据类型", "evidence_types"),
     ]
+    if not include_priority:
+        definitions = [item for item in definitions if item[0] != "priority"]
     groups: list[dict[str, Any]] = []
     for key, label, field in definitions:
         counts: dict[str, int] = {}
@@ -2295,6 +2395,11 @@ def build_standard_report(task_dir: Path, output: Path | None = None) -> dict:
         scenario_statuses=scenario_statuses,
     )
     collection_gap_rows = build_business_collection_gaps(collection_alerts, scenario_statuses)
+    collection_gap_summary = build_collection_gap_summary(
+        collection_gap_rows,
+        materials=materials,
+        evidence_cards=evidence_cards,
+    )
     analysis = build_feasibility_analysis(materials, evidence_cards, scenario_statuses)
     metric_facts = list(read_jsonl(task_dir / "knowledge" / "metric_facts.jsonl"))
     source_runs = list(read_jsonl(task_dir / "data" / "source_runs.jsonl"))
@@ -2472,11 +2577,12 @@ def build_standard_report(task_dir: Path, output: Path | None = None) -> dict:
     registration_materials = (
         regulatory_materials + competitor_materials + standard_materials + patent_materials
     )
-    screening_cards = build_screening_cards(materials, evidence_cards)
+    screening_cards = build_screening_cards(materials, evidence_cards, task_dir=task_dir)
     core_cards = [card for card in screening_cards if card.get("priority_class") == "A"][:60]
     if not core_cards:
         core_cards = screening_cards[:30]
     filter_groups = build_filter_groups(screening_cards)
+    core_filter_groups = build_filter_groups(core_cards, include_priority=False)
     screening_summary = build_screening_summary(screening_cards)
 
     template_path = asset_root() / "templates" / "standard-delivery-report.html"
@@ -2491,12 +2597,14 @@ def build_standard_report(task_dir: Path, output: Path | None = None) -> dict:
         screening_cards=screening_cards,
         core_cards=core_cards,
         filter_groups=filter_groups,
+        core_filter_groups=core_filter_groups,
         screening_summary=screening_summary,
         review_source=review_source,
         scenario_statuses=scenario_statuses,
         scenario_map=scenario_map,
         collection_alerts=collection_alerts,
         collection_gap_rows=collection_gap_rows,
+        collection_gap_summary=collection_gap_summary,
         analysis=analysis,
         business_decision=business_decision,
         evidence_map=evidence_map,

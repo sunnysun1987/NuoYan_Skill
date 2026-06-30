@@ -62,6 +62,19 @@
   </details>
   {% endif %}
 
+  {% if card.translation_items %}
+  <details class="card-details translation-details">
+    <summary>专业中文阅读</summary>
+    {% for item in card.translation_items %}
+    <div class="translation-item {{ item.status }}">
+      <div class="translation-label">{{ item.label }}{% if item.status != "completed" %} · 待生成{% endif %}</div>
+      <p>{{ item.text }}</p>
+      {% if item.note %}<p class="muted">{{ item.note }}</p>{% endif %}
+    </div>
+    {% endfor %}
+  </details>
+  {% endif %}
+
   {% if card.review_points %}
   <details class="card-details">
     <summary>待复核点</summary>
@@ -81,32 +94,12 @@
     <p class="meta"><span>任务ID：{{ task_id }}</span><span>生成时间：{{ generated_at }}</span><span>技能：诺研_skill</span><span>代码版本：V2.1</span></p>
   </header>
 
-  {% if collection_alerts.level != "ok" %}
-  <div class="alert-panel {{ collection_alerts.level }}">
-    <h2>资料缺口与人工处理</h2>
-    <p class="muted">以下内容表示当前报告仍有资料缺口。请按责任角色补充或复核后，再作为正式立项判断依据。</p>
-    <div class="gap-card-grid">
-      {% for row in collection_gap_rows %}
-      <article class="gap-card">
-        <div class="gap-card-head">
-          <span class="status-pill danger">{{ row.status }}</span>
-          <span class="owner-pill">{{ row.owner }}</span>
-        </div>
-        <h3>{{ row.source }}</h3>
-        <p><b>缺口</b>：{{ row.missing }}</p>
-        <p><b>影响</b>：{{ row.impact }}</p>
-        <p><b>处理建议</b>：{{ row.action }}</p>
-      </article>
-      {% endfor %}
-    </div>
-  </div>
-  {% endif %}
-
   <nav class="tabs" role="tablist" aria-label="研发筛选报告页签">
     <button class="tab active" type="button" data-tab-target="tab-analysis">项目分析</button>
     <button class="tab" type="button" data-tab-target="tab-reading">研发阅读入口</button>
     <button class="tab" type="button" data-tab-target="tab-core">核心必读文献</button>
-    <button class="tab" type="button" data-tab-target="tab-screening">证据卡筛选器</button>
+    <button class="tab" type="button" data-tab-target="tab-screening">全部证据卡</button>
+    <button class="tab" type="button" data-tab-target="tab-gaps">资料缺口</button>
   </nav>
 
   <div class="workspace">
@@ -160,7 +153,7 @@
             <ol class="plain-list">
               <li>先看“项目分析”，确认这个项目为什么值得做、能用在哪、还缺什么。</li>
               <li>再看“核心必读文献”，优先复核 A 类证据，不要从全部材料里盲找。</li>
-              <li>最后用“证据卡筛选器”按样本、方法学、参照、性能指标和证据类型筛选。</li>
+              <li>最后用“全部证据卡”按样本、方法学、参照、性能指标和证据类型筛选。</li>
             </ol>
           </section>
         </div>
@@ -212,17 +205,39 @@
       </section>
 
       <section class="tab-panel" id="tab-core">
-        <div class="section-intro">
-          <h2>核心必读文献</h2>
-          <p>这里优先放 A 类证据。它们通常带有性能参数、全文/摘要追溯、注册/标准/竞品价值或可直接支撑研发判断。</p>
-        </div>
-        <div class="card-list">
-          {% for card in core_cards %}
-          {{ render_screening_card(card) }}
-          {% endfor %}
-          {% if not core_cards %}
-          <div class="empty-state danger">当前没有可进入核心必读的证据卡。</div>
-          {% endif %}
+        <div class="screening-workbench">
+          <aside class="filters" aria-label="核心必读筛选">
+            <div class="filter-head">
+              <div class="filter-title">核心筛选</div>
+              <div class="filter-count"><span class="visible-card-count">{{ core_cards|length }}</span> / {{ core_cards|length }}</div>
+            </div>
+            <input class="filter-search" type="search" placeholder="搜索核心文献标题、摘要、平台、指标">
+
+            {% for group in core_filter_groups %}
+            <div class="filter-group" data-filter-group="{{ group.key }}">
+              <div class="filter-title">{{ group.label }}</div>
+              <div class="chip-row">
+                {% for option in group.options %}
+                <button class="chip" type="button" data-filter-key="{{ group.key }}" data-filter-value="{{ option.value }}">{{ option.value }} <span>{{ option.count }}</span></button>
+                {% endfor %}
+              </div>
+            </div>
+            {% endfor %}
+          </aside>
+          <div class="screening-results">
+            <div class="section-intro">
+              <h2>核心必读文献</h2>
+              <p>这里优先放 A 类证据。它们通常带有性能参数、全文/摘要追溯、注册/标准/竞品价值或可直接支撑研发判断。</p>
+            </div>
+            <div class="card-list">
+              {% for card in core_cards %}
+              {{ render_screening_card(card) }}
+              {% endfor %}
+              {% if not core_cards %}
+              <div class="empty-state danger">当前没有可进入核心必读的证据卡。</div>
+              {% endif %}
+            </div>
+          </div>
         </div>
       </section>
 
@@ -248,7 +263,7 @@
           </aside>
           <div class="screening-results">
             <div class="section-intro">
-              <h2>证据卡筛选器</h2>
+              <h2>全部证据卡</h2>
               <p>按左侧标签组合筛选。多个维度同时选择时，只显示同时满足条件的证据卡。</p>
             </div>
             <div id="screening-card-list" class="card-list">
@@ -260,6 +275,37 @@
               {% endif %}
             </div>
           </div>
+        </div>
+      </section>
+
+      <section class="tab-panel" id="tab-gaps">
+        <div class="section-intro">
+          <h2>资料缺口</h2>
+          <p>{{ collection_gap_summary.headline }}</p>
+          <div class="insight warn">优先处理责任角色：{{ collection_gap_summary.priority_text }}</div>
+        </div>
+        <div class="metric-grid compact">
+          <div class="metric-card"><div class="value warn">{{ collection_gap_summary.gap_count }}</div><div class="label">资料缺口</div></div>
+          <div class="metric-card"><div class="value">{{ materials|length }}</div><div class="label">已登记材料</div></div>
+          <div class="metric-card"><div class="value info">{{ screening_summary.total }}</div><div class="label">证据卡</div></div>
+          <div class="metric-card"><div class="value warn">{{ failed_scenarios|length }}</div><div class="label">受限来源</div></div>
+        </div>
+        <div class="gap-card-grid">
+          {% for row in collection_gap_rows %}
+          <article class="gap-card">
+            <div class="gap-card-head">
+              <span class="status-pill danger">{{ row.status }}</span>
+              <span class="owner-pill">{{ row.owner }}</span>
+            </div>
+            <h3>{{ row.source }}</h3>
+            <p><b>缺口</b>：{{ row.missing }}</p>
+            <p><b>影响</b>：{{ row.impact }}</p>
+            <p><b>处理建议</b>：{{ row.action }}</p>
+          </article>
+          {% endfor %}
+          {% if not collection_gap_rows %}
+          <div class="empty-state">当前未识别到需要单独处理的资料缺口。</div>
+          {% endif %}
         </div>
       </section>
   </div>
@@ -277,32 +323,37 @@
     });
   });
 
-  const activeFilters = {};
-  const searchInput = document.getElementById("global-card-search");
-
   function normalizeText(value) {
     return (value || "").toString().toLowerCase().replace(/\s+/g, " ").trim();
   }
 
   function cardMatchesFilter(card, key, values) {
-    if (!values || values.size === 0) return true;
+    if (!values || values.length === 0) return true;
     const haystack = normalizeText(card.getAttribute(`data-${key}`));
-    return Array.from(values).some((value) => haystack.includes(normalizeText(value)));
+    return values.some((value) => haystack.includes(normalizeText(value)));
   }
 
   function updateVisibleCount() {
     const activePanel = document.querySelector(".tab-panel.active");
     const cards = activePanel ? Array.from(activePanel.querySelectorAll(".filter-card")) : [];
     const visible = cards.filter((card) => !card.hidden).length;
-    const counter = document.getElementById("visible-card-count");
-    if (counter) counter.textContent = cards.length ? visible : {{ screening_summary.total }};
+    const counter = activePanel ? activePanel.querySelector(".visible-card-count, #visible-card-count") : null;
+    if (counter) counter.textContent = cards.length ? visible : counter.textContent;
   }
 
-  function applyScreeningFilters() {
-    const query = normalizeText(searchInput ? searchInput.value : "");
-    document.querySelectorAll(".filter-card").forEach((card) => {
+  function applyPanelFilters(panel) {
+    if (!panel) return;
+    const query = normalizeText(panel.querySelector(".filter-search")?.value || "");
+    const selectedByKey = {};
+    panel.querySelectorAll(".chip.active").forEach((chip) => {
+      const key = chip.getAttribute("data-filter-key");
+      const value = chip.getAttribute("data-filter-value");
+      selectedByKey[key] = selectedByKey[key] || [];
+      selectedByKey[key].push(value);
+    });
+    panel.querySelectorAll(".filter-card").forEach((card) => {
       const textMatch = !query || normalizeText(card.getAttribute("data-text") + " " + card.innerText).includes(query);
-      const filterMatch = Object.entries(activeFilters).every(([key, values]) => cardMatchesFilter(card, key, values));
+      const filterMatch = Object.entries(selectedByKey).every(([key, values]) => cardMatchesFilter(card, key, values));
       card.hidden = !(textMatch && filterMatch);
     });
     updateVisibleCount();
@@ -310,23 +361,14 @@
 
   document.querySelectorAll(".chip").forEach((chip) => {
     chip.addEventListener("click", () => {
-      const key = chip.getAttribute("data-filter-key");
-      const value = chip.getAttribute("data-filter-value");
-      activeFilters[key] = activeFilters[key] || new Set();
-      if (activeFilters[key].has(value)) {
-        activeFilters[key].delete(value);
-        chip.classList.remove("active");
-      } else {
-        activeFilters[key].add(value);
-        chip.classList.add("active");
-      }
-      applyScreeningFilters();
+      chip.classList.toggle("active");
+      applyPanelFilters(chip.closest(".tab-panel"));
     });
   });
 
-  if (searchInput) {
-    searchInput.addEventListener("input", applyScreeningFilters);
-  }
+  document.querySelectorAll(".filter-search").forEach((input) => {
+    input.addEventListener("input", () => applyPanelFilters(input.closest(".tab-panel")));
+  });
 
   updateVisibleCount();
 </script>
