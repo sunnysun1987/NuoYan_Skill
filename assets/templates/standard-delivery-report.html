@@ -120,10 +120,22 @@
       <section class="tab-panel active" id="tab-analysis">
         <div class="analysis-layout">
           <aside class="analysis-toc-panel">
-            <div class="filter-title">项目分析</div>
+            <div class="analysis-toc-head">
+              <div>
+                <div class="toc-eyebrow">项目分析导航</div>
+                <h2>17 个研发立项判断问题</h2>
+              </div>
+              <p>点击任一问题可跳转到对应分析章节。建议按顺序阅读，也可直接进入当前最关心的注册、竞品、技术或供应风险。</p>
+            </div>
+            <div class="analysis-toc-grid">
             {% for section in project_analysis_sections %}
-            <a href="#{{ section.id }}">{{ loop.index }}. {{ section.title }}</a>
+              <a class="analysis-nav-card" href="#{{ section.id }}" aria-label="查看{{ section.title }}">
+                <span class="nav-index">{{ "%02d"|format(loop.index) }}</span>
+                <span class="nav-title">{{ section.title }}</span>
+                <span class="nav-action">查看</span>
+              </a>
             {% endfor %}
+            </div>
           </aside>
           <div class="analysis-stack">
             {% for section in project_analysis_sections %}
@@ -149,11 +161,31 @@
 
       <section class="tab-panel" id="tab-reading">
         <div class="metric-grid compact">
-          <div class="metric-card"><div class="value">{{ materials|length }}</div><div class="label">已登记材料</div></div>
-          <div class="metric-card"><div class="value">{{ screening_summary.total }}</div><div class="label">筛选证据卡</div></div>
-          <div class="metric-card"><div class="value info">{{ screening_summary.core }}</div><div class="label">核心必读</div></div>
-          <div class="metric-card"><div class="value warn">{{ failed_scenarios|length }}</div><div class="label">受限场景</div></div>
-          <div class="metric-card"><div class="value info">{{ knowledge_status.metric_fact_count }}</div><div class="label">指标事实</div></div>
+          <button class="metric-card metric-link" type="button" data-jump-tab="tab-reading" data-jump-target="evidence-map" aria-label="查看已登记材料口径和证据地图">
+            <div class="metric-top"><div class="value">{{ materials|length }}</div><div class="metric-arrow">查看</div></div>
+            <div class="label">已登记材料</div>
+            <p class="metric-definition">口径：已写入材料库的原始资料总数，含文献、法规、竞品、标准、专利和本地导入材料。</p>
+          </button>
+          <button class="metric-card metric-link" type="button" data-jump-tab="tab-screening" data-jump-target="screening-card-list" aria-label="查看筛选证据卡">
+            <div class="metric-top"><div class="value">{{ screening_summary.total }}</div><div class="metric-arrow">查看</div></div>
+            <div class="label">筛选证据卡</div>
+            <p class="metric-definition">口径：由材料抽取、去重并进入研发筛选工作台的证据卡数量。</p>
+          </button>
+          <button class="metric-card metric-link" type="button" data-jump-tab="tab-core" data-jump-target="core-card-list" aria-label="查看核心必读文献">
+            <div class="metric-top"><div class="value info">{{ screening_summary.core }}</div><div class="metric-arrow">查看</div></div>
+            <div class="label">核心必读</div>
+            <p class="metric-definition">口径：优先级为 A 的高价值证据卡，建议研发、医学和注册人员先复核。</p>
+          </button>
+          <button class="metric-card metric-link" type="button" data-jump-tab="tab-gaps" data-jump-target="gap-workbench" aria-label="查看受限场景和资料缺口">
+            <div class="metric-top"><div class="value warn">{{ failed_scenarios|length }}</div><div class="metric-arrow">查看</div></div>
+            <div class="label">受限场景</div>
+            <p class="metric-definition">口径：因未命中、登录、权限、站点限制或需人工复核而不能直接形成完整证据的来源场景。</p>
+          </button>
+          <button class="metric-card metric-link" type="button" data-jump-tab="tab-reading" data-jump-target="metric-facts" aria-label="查看指标事实明细">
+            <div class="metric-top"><div class="value info">{{ knowledge_status.metric_fact_count }}</div><div class="metric-arrow">查看</div></div>
+            <div class="label">指标事实</div>
+            <p class="metric-definition">口径：从证据中结构化抽取的样本量、灵敏度、特异性、AUC、Ct、LoD、OR/HR 等参数事实。</p>
+          </button>
         </div>
 
         <div class="reading-grid">
@@ -181,7 +213,7 @@
           </section>
         </div>
 
-        <section class="section-card flat">
+        <section class="section-card flat" id="evidence-map">
           <h2>证据地图</h2>
           <table>
             <thead><tr><th>证据域</th><th>材料数</th><th>采集状态</th><th>业务用途</th></tr></thead>
@@ -196,6 +228,29 @@
               {% endfor %}
             </tbody>
           </table>
+        </section>
+
+        <section class="section-card flat" id="metric-facts">
+          <h2>指标事实</h2>
+          <p class="section-note">以下为系统从材料和证据卡中抽取的参数事实，用于快速定位性能、样本量和统计结果。正式引用前仍需回到原文或证据卡复核。</p>
+          {% if metric_facts %}
+          <table class="metric-fact-table">
+            <thead><tr><th>指标</th><th>数值</th><th>材料</th><th>证据卡</th><th>原文摘录</th></tr></thead>
+            <tbody>
+              {% for fact in metric_facts %}
+              <tr>
+                <td>{{ fact.metric_type }}</td>
+                <td>{{ fact.value }}</td>
+                <td>{{ fact.material_id }}</td>
+                <td>{{ fact.evidence_card_id }}</td>
+                <td>{{ fact.excerpt }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          {% else %}
+          <div class="empty-state">当前知识资产中尚未抽取到可展示的指标事实。</div>
+          {% endif %}
         </section>
 
         <section class="section-card flat">
@@ -252,7 +307,7 @@
               <h2>核心必读文献</h2>
               <p>这里优先放 A 类证据。它们通常带有性能参数、全文/摘要追溯、注册/标准/竞品价值或可直接支撑研发判断。</p>
             </div>
-            <div class="card-list">
+            <div id="core-card-list" class="card-list">
               {% for card in core_cards %}
               {{ render_screening_card(card) }}
               {% endfor %}
@@ -313,7 +368,7 @@
           <div class="metric-card"><div class="value info">{{ screening_summary.total }}</div><div class="label">证据卡</div></div>
           <div class="metric-card"><div class="value warn">{{ failed_scenarios|length }}</div><div class="label">受限来源</div></div>
         </div>
-        <div class="gap-card-grid">
+        <div class="gap-card-grid" id="gap-workbench">
           {% for row in collection_gap_rows %}
           <article class="gap-card">
             <div class="gap-card-head">
@@ -335,14 +390,31 @@
 </main>
 
 <script>
+  function activateTab(target) {
+    const button = document.querySelector(`.tab[data-tab-target="${target}"]`);
+    const panel = document.getElementById(target);
+    if (!button || !panel) return false;
+    document.querySelectorAll(".tab").forEach((item) => item.classList.remove("active"));
+    document.querySelectorAll(".tab-panel").forEach((item) => item.classList.remove("active"));
+    button.classList.add("active");
+    panel.classList.add("active");
+    updateVisibleCount();
+    return true;
+  }
+
   document.querySelectorAll(".tab").forEach((button) => {
-    button.addEventListener("click", () => {
-      const target = button.getAttribute("data-tab-target");
-      document.querySelectorAll(".tab").forEach((item) => item.classList.remove("active"));
-      document.querySelectorAll(".tab-panel").forEach((item) => item.classList.remove("active"));
-      button.classList.add("active");
-      document.getElementById(target).classList.add("active");
-      updateVisibleCount();
+    button.addEventListener("click", () => activateTab(button.getAttribute("data-tab-target")));
+  });
+
+  document.querySelectorAll("[data-jump-tab]").forEach((item) => {
+    item.addEventListener("click", () => {
+      const targetTab = item.getAttribute("data-jump-tab");
+      const targetId = item.getAttribute("data-jump-target");
+      activateTab(targetTab);
+      window.setTimeout(() => {
+        const target = targetId ? document.getElementById(targetId) : document.getElementById(targetTab);
+        if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 30);
     });
   });
 

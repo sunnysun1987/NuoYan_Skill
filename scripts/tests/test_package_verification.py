@@ -100,6 +100,24 @@ def test_verify_package_keeps_incomplete_scope_as_not_business_ready(tmp_path: P
     assert result["final_review_ready"] is False
 
 
+def test_standard_delivery_report_has_drilldown_navigation_and_metric_definitions(tmp_path: Path):
+    task_dir = _task_dir(tmp_path)
+    _write_single_material_and_card(task_dir)
+    export_review(task_dir)
+    build_standard_delivery(task_dir)
+
+    html = (task_dir / "交付目录" / "00_立项调研综合报告.html").read_text(encoding="utf-8")
+
+    assert "项目分析导航" in html
+    assert "analysis-nav-card" in html
+    assert "17 个研发立项判断问题" in html
+    assert 'data-jump-tab="tab-screening"' in html
+    assert 'data-jump-target="screening-card-list"' in html
+    assert 'data-jump-target="metric-facts"' in html
+    assert "口径：已写入材料库的原始资料总数" in html
+    assert "口径：从证据中结构化抽取的样本量" in html
+
+
 def test_verify_package_requires_fallback_for_failed_formal_scenarios(tmp_path: Path):
     task_dir = _task_dir(tmp_path)
     update_confirmations(task_dir, FULL_CONFIRMATIONS)
