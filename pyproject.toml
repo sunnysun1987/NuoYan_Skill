@@ -32,6 +32,9 @@ ocr = [
     "pillow",
     "pytesseract",
 ]
+translation = [
+    "argostranslate",
+]
 dev = [
     "pytest",
     "ruff",

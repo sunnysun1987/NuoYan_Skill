@@ -88,11 +88,14 @@ V2.1 adds a standard source-site baseline and lightweight local knowledge assets
 - `nuoyan import-literature-table --task-id <task_id> --path literature.xlsx --json` imports local CSV/XLSX literature lists.
 - `nuoyan build-knowledge --task-id <task_id> --json` generates metric facts, topic index, dedup index and a literature graph.
 
-Professional Chinese reading support is built into this repository as CLI code, not as a separate Codex skill:
+Professional Chinese reading support is built into this repository as CLI code. It is designed for R&D teams where individual users may not have an OpenAI account:
 
-- `nuoyan translation-status --task-id <task_id> --json` checks whether the built-in translation command exists, whether an API key is configured, and how many cached translations are available.
-- `nuoyan translate-materials --task-id <task_id> --json` generates cached Chinese translations for English abstract sections using an OpenAI-compatible translation API.
-- Required configuration: set `NUOYAN_TRANSLATION_API_KEY` or `OPENAI_API_KEY`. Optional configuration: `NUOYAN_TRANSLATION_MODEL` and `NUOYAN_TRANSLATION_BASE_URL`.
+- Recommended offline engine: [Argos Translate](https://github.com/argosopentech/argos-translate), an open-source offline translation library. Install `argostranslate` and import an English→Chinese model once on the standard R&D workstation image.
+- Enterprise service option: [LibreTranslate](https://github.com/LibreTranslate/LibreTranslate), a self-hosted translation API built around open-source translation packages. Configure `NUOYAN_LIBRETRANSLATE_URL` for an intranet service.
+- Cloud fallback: an administrator can configure an OpenAI-compatible gateway with `NUOYAN_TRANSLATION_API_KEY`, `NUOYAN_TRANSLATION_BASE_URL` and `NUOYAN_TRANSLATION_MODEL`; individual R&D users do not need personal OpenAI accounts.
+- `nuoyan setup-translation-engine --provider argos --json` installs/checks the optional Argos Python dependency and attempts to install the English→Chinese offline model. Use `--skip-model` when IT wants to install model files separately.
+- `nuoyan translation-status --task-id <task_id> --json` checks whether the built-in command exists, which engine is active, whether Argos/LibreTranslate/OpenAI-compatible routes are ready, and how many cached translations are available.
+- `nuoyan translate-materials --task-id <task_id> --json` generates cached Chinese translations for English abstract sections using the first available engine in `auto` mode: Argos offline → LibreTranslate intranet → OpenAI-compatible gateway.
 - HTML reports read `data/translations.jsonl`; if no cache exists, they show the translation capability status instead of inventing a partial translation.
 
 The final verification command reports whether the package is ready for business review:

@@ -1,7 +1,10 @@
 import hashlib
+import importlib.util
 import json
 import os
 import re
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -48,6 +51,12 @@ PARAMETER_PATTERNS = [
     (r"\b95%\s*CI[,:\s]*([0-9.\-–,\s]+)", "95% CI"),
     (r"\bn\s*[=:]\s*([0-9,]+)", "样本量 n"),
 ]
+
+PROVIDER_LABEL_ZH = {
+    "argos": "Argos Translate 离线翻译",
+    "libretranslate": "LibreTranslate 企业内网翻译服务",
+    "openai": "OpenAI-compatible 云端翻译网关",
+}
 
 
 def is_mostly_english(text: str) -> bool:
@@ -114,6 +123,108 @@ def cached_translation(
     return cache.get((material_id, field, text_hash(text)))
 
 
+def setup_translation_engine(
+    *,
+    provider: str = "argos",
+    install_model: bool = True,
+    timeout: int = 180,
+) -> dict[str, Any]:
+    provider = str(provider or "argos").lower()
+    if provider != "argos":
+        return {
+            "status": "unsupported_provider",
+            "provider": provider,
+            "message_zh": "当前自动安装仅支持 Argos Translate 离线翻译依赖。LibreTranslate 建议由企业管理员部署为内网服务。",
+        }
+    commands: list[list[str]] = []
+    if importlib.util.find_spec("argostranslate") is None:
+        commands.append([sys.executable, "-m", "pip", "install", "argostranslate"])
+    executed: list[dict[str, Any]] = []
+    for command in commands:
+        completed = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=600,
+        )
+        executed.append(
+            {
+                "command": " ".join(command),
+                "returncode": completed.returncode,
+                "stdout_tail": completed.stdout[-1000:],
+                "stderr_tail": completed.stderr[-1000:],
+            }
+        )
+        if completed.returncode != 0:
+            return {
+                "status": "install_failed",
+                "provider": "argos",
+                "commands": executed,
+                "message_zh": "Argos Translate Python 依赖安装失败。可由 IT 管理员在企业标准环境中预装后再分发诺研_skill。",
+            }
+    engine = TranslationEngine(provider="argos")
+    if install_model and engine.argos_installed() and not engine.argos_ready():
+        for command in [
+            ["argospm", "update"],
+            ["argospm", "install", "translate-en_zh"],
+        ]:
+            try:
+                completed = subprocess.run(
+                    command,
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout,
+                )
+                executed.append(
+                    {
+                        "command": " ".join(command),
+                        "returncode": completed.returncode,
+                        "stdout_tail": completed.stdout[-1000:],
+                        "stderr_tail": completed.stderr[-1000:],
+                    }
+                )
+                if completed.returncode != 0:
+                    break
+            except (OSError, subprocess.SubprocessError) as exc:
+                executed.append(
+                    {
+                        "command": " ".join(command),
+                        "returncode": -1,
+                        "stdout_tail": "",
+                        "stderr_tail": f"{type(exc).__name__}: {exc}",
+                    }
+                )
+                break
+        engine = TranslationEngine(provider="argos")
+    if engine.argos_ready():
+        status = "ready"
+        message = "Argos Translate 已安装，且 en→zh 离线翻译模型可用。"
+    elif engine.argos_installed():
+        status = "package_installed_model_missing"
+        message = (
+            "Argos Translate Python 包已安装，但尚未导入 en→zh 离线翻译模型。"
+            "请从 Argos Translate 模型库下载 English→Chinese 模型并用 argospm install 导入，"
+            "或由 IT 管理员预装模型后统一分发。"
+        )
+    else:
+        status = "not_installed"
+        message = "Argos Translate 尚未安装。"
+    return {
+        "status": status,
+        "provider": "argos",
+        "commands": executed,
+        "argos_installed": engine.argos_installed(),
+        "argos_model_ready": engine.argos_ready(),
+        "message_zh": message,
+        "next_step_zh": (
+            "如本机模型下载受证书、代理或内网限制影响，请由 IT 管理员下载 English→Chinese .argosmodel 后运行 argospm install 导入。"
+            "模型安装完成后运行 translation-status 确认 argos_model_ready=true，再运行 translate-materials 生成 data/translations.jsonl。"
+        ),
+    }
+
+
 class TranslationEngine:
     def __init__(
         self,
@@ -124,15 +235,78 @@ class TranslationEngine:
         base_url: str = "",
         timeout: float = 90.0,
     ) -> None:
-        self.provider = provider or os.environ.get("NUOYAN_TRANSLATION_PROVIDER", "openai")
+        self.provider = provider or os.environ.get("NUOYAN_TRANSLATION_PROVIDER", "auto")
         self.model = model or os.environ.get("NUOYAN_TRANSLATION_MODEL", "gpt-4o-mini")
         self.api_key = api_key or os.environ.get("NUOYAN_TRANSLATION_API_KEY") or os.environ.get("OPENAI_API_KEY", "")
         self.base_url = (base_url or os.environ.get("NUOYAN_TRANSLATION_BASE_URL") or "https://api.openai.com/v1").rstrip("/")
+        self.libretranslate_url = (
+            base_url
+            or os.environ.get("NUOYAN_LIBRETRANSLATE_URL")
+            or (
+                os.environ.get("NUOYAN_TRANSLATION_BASE_URL", "")
+                if (provider or os.environ.get("NUOYAN_TRANSLATION_PROVIDER", "")).lower() == "libretranslate"
+                else ""
+            )
+        ).rstrip("/")
+        self.libretranslate_api_key = (
+            api_key
+            or os.environ.get("NUOYAN_LIBRETRANSLATE_API_KEY")
+            or os.environ.get("NUOYAN_TRANSLATION_API_KEY", "")
+        )
+        self.argos_from = os.environ.get("NUOYAN_ARGOS_FROM", "en")
+        self.argos_to = os.environ.get("NUOYAN_ARGOS_TO", "zh")
         self.timeout = timeout
 
     @property
     def configured(self) -> bool:
+        return bool(self.active_provider())
+
+    def active_provider(self) -> str:
+        provider = str(self.provider or "auto").lower()
+        if provider == "auto":
+            if self.argos_ready():
+                return "argos"
+            if self.libretranslate_ready():
+                return "libretranslate"
+            if self.openai_ready():
+                return "openai"
+            return ""
+        if provider == "argos":
+            return "argos" if self.argos_ready() else ""
+        if provider == "libretranslate":
+            return "libretranslate" if self.libretranslate_ready() else ""
+        if provider in {"openai", "openai-compatible", "openai_compatible"}:
+            return "openai" if self.openai_ready() else ""
+        return ""
+
+    def openai_ready(self) -> bool:
         return bool(self.api_key and self.model and self.base_url)
+
+    def libretranslate_ready(self) -> bool:
+        return bool(self.libretranslate_url)
+
+    def argos_installed(self) -> bool:
+        return (
+            importlib.util.find_spec("argostranslate") is not None
+            and importlib.util.find_spec("argostranslate.translate") is not None
+        )
+
+    def argos_ready(self) -> bool:
+        if not self.argos_installed():
+            return False
+        try:
+            import argostranslate.translate
+
+            for source_language in argostranslate.translate.get_installed_languages():
+                if getattr(source_language, "code", "") != self.argos_from:
+                    continue
+                for target_language in argostranslate.translate.get_installed_languages():
+                    if getattr(target_language, "code", "") == self.argos_to:
+                        source_language.get_translation(target_language)
+                        return True
+        except Exception:
+            return False
+        return False
 
     def translate_text(self, text: str, *, context: str = "") -> str:
         raw = str(text or "").strip()
@@ -140,12 +314,43 @@ class TranslationEngine:
             return ""
         if not is_mostly_english(raw):
             return raw
-        if not self.configured:
+        active_provider = self.active_provider()
+        if not active_provider:
             raise RuntimeError(
-                "未配置完整中文翻译引擎。请设置 NUOYAN_TRANSLATION_API_KEY 或 OPENAI_API_KEY，"
-                "并按需设置 NUOYAN_TRANSLATION_MODEL / NUOYAN_TRANSLATION_BASE_URL。"
+                "未配置可用的专业中文翻译引擎。推荐安装 Argos Translate 离线翻译包；"
+                "或配置企业内网 LibreTranslate 服务；也可由管理员统一配置 OpenAI-compatible API。"
             )
+        if active_provider == "argos":
+            return self._translate_argos(raw)
+        if active_provider == "libretranslate":
+            return self._translate_libretranslate(raw)
         return self._translate_openai_compatible(raw, context=context)
+
+    def _translate_argos(self, text: str) -> str:
+        import argostranslate.translate
+
+        return str(
+            argostranslate.translate.translate(
+                text,
+                self.argos_from,
+                self.argos_to,
+            )
+        ).strip()
+
+    def _translate_libretranslate(self, text: str) -> str:
+        payload: dict[str, Any] = {
+            "q": text,
+            "source": self.argos_from,
+            "target": self.argos_to,
+            "format": "text",
+        }
+        if self.libretranslate_api_key:
+            payload["api_key"] = self.libretranslate_api_key
+        with httpx.Client(timeout=self.timeout) as client:
+            response = client.post(f"{self.libretranslate_url}/translate", json=payload)
+            response.raise_for_status()
+        data = response.json()
+        return str(data.get("translatedText") or "").strip()
 
     def _translate_openai_compatible(self, text: str, *, context: str = "") -> str:
         system_prompt = (
@@ -208,7 +413,8 @@ def translation_status(task_dir: Path) -> dict[str, Any]:
         for section in iterable:
             if is_mostly_english(section.get("text", "")):
                 english_sections += 1
-    configured = engine.configured
+    active_provider = engine.active_provider()
+    configured = bool(active_provider)
     if configured and completed_rows:
         status = "ready_with_cache"
         message = "内置翻译命令已配置，且已有专业中文阅读缓存。"
@@ -217,12 +423,17 @@ def translation_status(task_dir: Path) -> dict[str, Any]:
         message = "内置翻译命令已配置，但当前任务尚未生成专业中文阅读缓存。"
     else:
         status = "not_configured"
-        message = "内置翻译命令已安装，但尚未配置翻译 API。配置后可生成专业中文阅读缓存。"
+        message = "内置翻译命令已安装，但尚未配置可用翻译引擎。推荐先安装 Argos Translate 离线翻译包，或接入企业内网 LibreTranslate 服务。"
     return {
         "status": status,
         "command_available": True,
         "provider": engine.provider,
+        "active_provider": active_provider,
         "model": engine.model,
+        "argos_installed": engine.argos_installed(),
+        "argos_model_ready": engine.argos_ready(),
+        "libretranslate_configured": engine.libretranslate_ready(),
+        "openai_configured": engine.openai_ready(),
         "base_url_configured": bool(engine.base_url),
         "api_key_configured": bool(engine.api_key),
         "configured": configured,
@@ -231,9 +442,9 @@ def translation_status(task_dir: Path) -> dict[str, Any]:
         "english_section_count": english_sections,
         "message_zh": message,
         "setup_zh": (
-            "需要先配置翻译 API 密钥（NUOYAN_TRANSLATION_API_KEY 或 OPENAI_API_KEY）；"
-            "可选配置模型和服务地址（NUOYAN_TRANSLATION_MODEL / NUOYAN_TRANSLATION_BASE_URL）。"
-            "配置后由 agent 运行诺研内置翻译命令生成缓存，再重新生成报告。"
+            "推荐方案：安装 argostranslate 并导入 en→zh 离线模型后直接运行 translate-materials。"
+            "企业方案：由管理员部署 LibreTranslate，并设置 NUOYAN_LIBRETRANSLATE_URL。"
+            "云端兜底：由管理员统一配置 NUOYAN_TRANSLATION_API_KEY / NUOYAN_TRANSLATION_BASE_URL，研发人员不需要个人账号。"
         ),
     }
 
@@ -265,9 +476,9 @@ def translate_sections(
             error = str(cached.get("error") or "")
         elif is_mostly_english(text):
             translation_zh = ""
-            status = "not_configured"
-            engine_name = engine.provider
-            error = "未生成完整中文翻译：翻译引擎未配置。"
+            status = "engine_not_ready"
+            engine_name = engine.active_provider() or engine.provider
+            error = "未生成完整中文翻译：当前环境尚未配置可用翻译引擎。"
         else:
             translation_zh = ""
             status = "source_is_chinese"
@@ -306,9 +517,10 @@ def translate_materials(
             "status": "not_configured",
             "translated_count": 0,
             "message_zh": (
-                "未配置完整中文翻译引擎。请设置 NUOYAN_TRANSLATION_API_KEY 或 OPENAI_API_KEY，"
-                "并按需设置 NUOYAN_TRANSLATION_MODEL / NUOYAN_TRANSLATION_BASE_URL。"
+                "未配置可用的专业中文翻译引擎。推荐安装 Argos Translate 离线翻译包；"
+                "或接入企业内网 LibreTranslate 服务；也可由管理员统一配置 OpenAI-compatible API。"
             ),
+            "setup_zh": translation_status(task_dir)["setup_zh"],
         }
     existing = load_translation_cache(task_dir)
     translated_count = 0
@@ -351,7 +563,7 @@ def translate_materials(
                         "source_text": text,
                         "translation_zh": translation_zh,
                         "status": "completed",
-                        "engine": engine.provider,
+                        "engine": engine.active_provider() or engine.provider,
                         "model": engine.model,
                     },
                 )

@@ -1090,13 +1090,15 @@ a:hover { text-decoration: underline; }
   font-weight: 800;
   margin-bottom: 4px;
 }
-.translation-item.not_configured {
+.translation-item.not_configured,
+.translation-item.engine_not_ready {
   background: var(--warn-light);
   border: 1px solid rgba(184,114,12,0.18);
   border-radius: var(--radius-sm);
   padding: 8px 10px;
 }
-.translation-item.not_configured .translation-label {
+.translation-item.not_configured .translation-label,
+.translation-item.engine_not_ready .translation-label {
   color: var(--warn);
 }
 

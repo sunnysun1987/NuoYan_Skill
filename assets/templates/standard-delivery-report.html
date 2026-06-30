@@ -67,7 +67,7 @@
     <summary>专业中文阅读</summary>
     {% for item in card.translation_items %}
     <div class="translation-item {{ item.status }}">
-      <div class="translation-label">{{ item.label }}{% if item.status == "not_configured" %} · 翻译 API 未配置{% elif item.status != "completed" %} · 待生成{% endif %}</div>
+      <div class="translation-label">{{ item.label }}{% if item.status == "engine_not_ready" or item.status == "not_configured" %} · 翻译引擎未就绪{% elif item.status != "completed" %} · 待生成{% endif %}</div>
       <p>{{ item.text }}</p>
       {% if item.note %}<p class="muted">{{ item.note }}</p>{% endif %}
     </div>
@@ -161,7 +161,9 @@
             <p>{{ translation_capability.message_zh }}</p>
             <div class="field-grid">
               <div><b>翻译能力</b><span>{% if translation_capability.command_available %}已内置于诺研_skill{% else %}未安装{% endif %}</span></div>
-              <div><b>API 配置</b><span>{% if translation_capability.configured %}已配置{% else %}未配置{% endif %}</span></div>
+              <div><b>当前引擎</b><span>{% if translation_capability.active_provider %}{{ translation_capability.active_provider }}{% else %}未就绪{% endif %}</span></div>
+              <div><b>离线模型</b><span>{% if translation_capability.argos_model_ready %}可用{% elif translation_capability.argos_installed %}缺少模型{% else %}未安装{% endif %}</span></div>
+              <div><b>内网服务</b><span>{% if translation_capability.libretranslate_configured %}已配置{% else %}未配置{% endif %}</span></div>
               <div><b>英文段落</b><span>{{ translation_capability.english_section_count }}</span></div>
               <div><b>已缓存译文</b><span>{{ translation_capability.cached_translation_count }}</span></div>
             </div>

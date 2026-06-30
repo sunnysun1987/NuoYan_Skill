@@ -174,6 +174,13 @@ def run_doctor(output_root: Path, *, include_network: bool = False) -> dict:
             False,
         ),
         dependency_check(
+            "argostranslate",
+            "离线专业中文翻译",
+            "argostranslate",
+            "缺少 Argos Translate 时，英文材料中文阅读版需要改用企业内网 LibreTranslate 或管理员统一模型网关。",
+            False,
+        ),
+        dependency_check(
             "pypdf",
             "PDF 文本提取",
             "pypdf",

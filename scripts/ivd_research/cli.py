@@ -65,7 +65,7 @@ from .status import (
     status_payload,
     now_iso,
 )
-from .translation import translate_materials, translation_status
+from .translation import setup_translation_engine, translate_materials, translation_status
 
 app = typer.Typer(name="nuoyan", no_args_is_help=True)
 
@@ -638,10 +638,10 @@ def translate_materials_command(
     output_root: Optional[Path] = typer.Option(None, "--output-root"),
     limit: int = typer.Option(0, "--limit", help="最多新增翻译段落数；0 表示不限。"),
     force: bool = typer.Option(False, "--force", help="重新生成已有缓存翻译。"),
-    provider: str = typer.Option("", "--provider", help="翻译引擎标识，默认 openai。"),
-    model: str = typer.Option("", "--model", help="OpenAI-compatible 模型名。"),
-    base_url: str = typer.Option("", "--base-url", help="OpenAI-compatible API base URL。"),
-    api_key: str = typer.Option("", "--api-key", help="临时 API key；优先使用环境变量，避免写入命令历史。"),
+    provider: str = typer.Option("", "--provider", help="翻译引擎：auto / argos / libretranslate / openai。默认 auto。"),
+    model: str = typer.Option("", "--model", help="OpenAI-compatible 云端兜底模型名。"),
+    base_url: str = typer.Option("", "--base-url", help="LibreTranslate 或 OpenAI-compatible 服务地址。"),
+    api_key: str = typer.Option("", "--api-key", help="临时服务密钥；仅用于企业内网或管理员统一模型网关，避免写入命令历史。"),
     json_output: bool = typer.Option(False, "--json"),
 ) -> None:
     root = output_root or default_output_root()
@@ -668,6 +668,15 @@ def translation_status_command(
     root = output_root or default_output_root()
     task_dir = find_task(root, task_id)
     emit(translation_status(task_dir), json_output)
+
+
+@app.command("setup-translation-engine")
+def setup_translation_engine_command(
+    provider: str = typer.Option("argos", "--provider", help="安装/检查翻译引擎；当前自动安装支持 argos。"),
+    skip_model: bool = typer.Option(False, "--skip-model", help="只安装 Python 依赖，不自动下载/安装离线模型。"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    emit(setup_translation_engine(provider=provider, install_model=not skip_model), json_output)
 
 
 @app.command("verify-package")

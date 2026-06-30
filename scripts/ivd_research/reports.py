@@ -2096,9 +2096,9 @@ def _screening_translation_items(
             )
         else:
             if command_available and not configured:
-                text_zh = "内置翻译命令已存在，但当前未配置翻译 API，因此尚未生成专业中文阅读版。"
-                note = "配置 NUOYAN_TRANSLATION_API_KEY 或 OPENAI_API_KEY 后，运行内置翻译命令生成缓存，再重新生成报告即可显示完整译文。"
-                status = "not_configured"
+                text_zh = "内置翻译命令已存在，但当前翻译引擎未就绪，因此尚未生成专业中文阅读版。"
+                note = "推荐安装 Argos Translate 离线模型，或接入企业内网 LibreTranslate 服务；完成后运行内置翻译命令生成缓存，再重新生成报告即可显示完整译文。"
+                status = "engine_not_ready"
             elif command_available:
                 text_zh = "内置翻译命令已配置，但当前任务尚未生成该段专业中文阅读缓存。"
                 note = "运行内置翻译命令生成缓存后，再重新生成报告即可显示完整译文。"
@@ -2120,9 +2120,9 @@ def _screening_translation_items(
             text = " ".join(str(excerpt or "").split())
             if is_mostly_english(text):
                 if command_available and not configured:
-                    text_zh = "内置翻译命令已存在，但当前未配置翻译 API，因此尚未生成专业中文阅读版。"
-                    note = "当前保留英文原文用于追溯。"
-                    status = "not_configured"
+                    text_zh = "内置翻译命令已存在，但当前翻译引擎未就绪，因此尚未生成专业中文阅读版。"
+                    note = "当前保留英文原文用于追溯；安装离线模型或接入企业内网翻译服务后可生成中文阅读版。"
+                    status = "engine_not_ready"
                 else:
                     text_zh = "该英文摘录尚未生成专业中文阅读缓存。"
                     note = "生成翻译缓存后可在此处显示完整中文译文。"
