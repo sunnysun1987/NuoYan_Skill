@@ -2066,6 +2066,77 @@ def _screening_excerpt_lines(card: dict, material: dict) -> list[str]:
     return [str(item)[:700] for item in excerpts[:4]]
 
 
+EXCERPT_FIELD_PATTERNS = [
+    ("journal", "期刊/来源", r"期刊/来源[：:]"),
+    ("source", "来源", r"来源[：:]"),
+    ("query", "检索式", r"检索式[：:]"),
+    ("openalex_id", "OpenAlex ID", r"OpenAlex ID[：:]"),
+    ("title", "题名", r"标题[：:]"),
+    ("authors", "作者", r"作者[：:]"),
+    ("abstract", "Abstract", r"Abstract[：:]"),
+]
+
+
+def _paragraphize_reading_text(text: str, *, max_chars: int = 180) -> list[str]:
+    value = " ".join(str(text or "").split())
+    if not value:
+        return []
+    parts = re.split(r"(?<=[。！？；;])\s*|(?<=[.!?])\s+(?=[A-Z])", value)
+    paragraphs: list[str] = []
+    buffer = ""
+    for part in parts:
+        piece = part.strip()
+        if not piece:
+            continue
+        if not buffer:
+            buffer = piece
+            continue
+        if len(buffer) + len(piece) + 1 <= max_chars:
+            buffer = f"{buffer} {piece}" if re.search(r"[A-Za-z]$", buffer) else f"{buffer}{piece}"
+        else:
+            paragraphs.append(buffer)
+            buffer = piece
+    if buffer:
+        paragraphs.append(buffer)
+    return paragraphs or [value]
+
+
+def _excerpt_reading_blocks(text: str) -> list[dict[str, Any]]:
+    value = " ".join(str(text or "").split())
+    if not value:
+        return []
+    matches: list[tuple[int, int, str, str]] = []
+    for key, label, pattern in EXCERPT_FIELD_PATTERNS:
+        for match in re.finditer(pattern, value):
+            matches.append((match.start(), match.end(), key, label))
+    matches.sort(key=lambda item: (item[0], -(item[1] - item[0])))
+    selected_reversed: list[tuple[int, int, str, str]] = []
+    occupied: list[tuple[int, int]] = []
+    for item in matches:
+        start, end, _, _ = item
+        if any(not (end <= used_start or start >= used_end) for used_start, used_end in occupied):
+            continue
+        selected_reversed.append(item)
+        occupied.append((start, end))
+    matches = sorted(selected_reversed, key=lambda item: item[0])
+    if not matches:
+        return [{"label": "摘录", "paragraphs": _paragraphize_reading_text(value)}]
+
+    blocks: list[dict[str, Any]] = []
+    if matches[0][0] > 0:
+        prefix = value[: matches[0][0]].strip(" ；;")
+        if prefix:
+            blocks.append({"label": "摘录", "paragraphs": _paragraphize_reading_text(prefix)})
+    for index, (_, end, key, label) in enumerate(matches):
+        next_start = matches[index + 1][0] if index + 1 < len(matches) else len(value)
+        content = value[end:next_start].strip(" ；;")
+        if not content:
+            continue
+        max_chars = 220 if key == "abstract" else 320
+        blocks.append({"label": label, "paragraphs": _paragraphize_reading_text(content, max_chars=max_chars)})
+    return blocks
+
+
 def _screening_translation_items(
     card: dict,
     material: dict,
@@ -2088,6 +2159,7 @@ def _screening_translation_items(
                 "label": label,
                 "status": "completed",
                 "text": str(cached.get("translation_zh") or "").strip(),
+                "paragraphs": _paragraphize_reading_text(str(cached.get("translation_zh") or "").strip()),
                 "note": "基于已缓存的专业中文翻译。",
             }
         if task_dir := capability.get("_task_dir"):
@@ -2113,6 +2185,7 @@ def _screening_translation_items(
                         "label": label,
                         "status": "completed",
                         "text": translation_zh,
+                        "paragraphs": _paragraphize_reading_text(translation_zh),
                         "note": "基于交付生成时写入的专业中文翻译。",
                     }
             except Exception:
@@ -2143,13 +2216,14 @@ def _screening_translation_items(
                 note = "请先安装或启用诺研内置翻译能力。"
                 status = "not_available"
             items.append(
-                {
-                    "label": label,
-                    "status": status,
-                    "text": text_zh,
-                    "note": note,
-                }
-            )
+                    {
+                        "label": label,
+                        "status": status,
+                        "text": text_zh,
+                        "paragraphs": _paragraphize_reading_text(text_zh),
+                        "note": note,
+                    }
+                )
     if not items:
         for excerpt in card.get("excerpt_lines") or []:
             text = " ".join(str(excerpt or "").split())
@@ -2170,6 +2244,7 @@ def _screening_translation_items(
                             "label": "Excerpt",
                             "status": status,
                             "text": text_zh,
+                            "paragraphs": _paragraphize_reading_text(text_zh),
                             "note": note,
                         }
                     )
@@ -2259,6 +2334,11 @@ def build_screening_cards(
         )[:8]
         row["summary_lines"] = _screening_summary_lines(row, material)
         row["excerpt_lines"] = _screening_excerpt_lines(row, material)
+        row["excerpt_blocks"] = [
+            block
+            for line in row["excerpt_lines"]
+            for block in _excerpt_reading_blocks(line)
+        ][:10]
         row["translation_items"] = _screening_translation_items(
             row,
             material,

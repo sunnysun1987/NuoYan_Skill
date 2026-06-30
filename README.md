@@ -95,6 +95,7 @@ Professional Chinese reading support is built into this repository as a delivery
 - `nuoyan build-standard-delivery --task-id <task_id> --json` attempts `translate-materials` before rendering the HTML report, so English titles, structured abstracts and key excerpts are cached in `data/translations.jsonl`.
 - `nuoyan translation-status --task-id <task_id> --json` is an internal agent/maintainer check, not a user-facing R&D operation.
 - HTML reports prioritize Chinese titles and “专业中文阅读”; original English remains visible for traceability.
+- Evidence excerpts are rendered as reading blocks. Source, query, title, authors, journal/source and Abstract text are separated, and Chinese reading text is split into short paragraphs for review.
 
 The final verification command reports whether the package is ready for business review:
 

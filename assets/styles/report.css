@@ -1073,7 +1073,27 @@ a:hover { text-decoration: underline; }
 .card-details p {
   color: var(--text-secondary);
   font-size: 13px;
+  line-height: 1.72;
   margin: 8px 0;
+}
+.reading-block {
+  border-top: 1px solid var(--border-light);
+  padding: 10px 0;
+}
+.reading-block:first-of-type {
+  border-top: none;
+  padding-top: 6px;
+}
+.reading-label {
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 800;
+  margin-bottom: 4px;
+}
+.reading-block p,
+.translation-item p {
+  line-height: 1.78;
+  margin: 7px 0;
 }
 .translation-details {
   border-color: rgba(45,140,94,0.22);
@@ -1085,7 +1105,7 @@ a:hover { text-decoration: underline; }
 .translation-item {
   border-top: 1px solid var(--border-light);
   margin-top: 8px;
-  padding-top: 8px;
+  padding-top: 10px;
 }
 .translation-item:first-of-type {
   border-top: none;

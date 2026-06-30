@@ -99,6 +99,26 @@ def test_title_translation_cache_uses_title_field(tmp_path: Path):
     )
 
 
+def test_excerpt_reading_blocks_split_source_metadata_and_abstract():
+    from ivd_research.reports import _excerpt_reading_blocks, _paragraphize_reading_text
+
+    text = (
+        "来源：OpenAlex 检索式：respiratory influenza A influenza B "
+        "标题：Clinical and virological impact 作者：Jiazhen Zheng "
+        "期刊/来源：PLOS neglected tropical diseases "
+        "Abstract: Severe acute respiratory syndrome coronavirus 2 mimics influenza A. "
+        "Comprehensive data for adult patients were extracted. "
+        "All participants were tested at admission."
+    )
+
+    blocks = _excerpt_reading_blocks(text)
+
+    assert [block["label"] for block in blocks[:5]] == ["来源", "检索式", "题名", "作者", "期刊/来源"]
+    assert blocks[-1]["label"] == "Abstract"
+    assert len(blocks[-1]["paragraphs"]) >= 1
+    assert len(_paragraphize_reading_text("第一句。第二句。第三句。", max_chars=6)) >= 2
+
+
 def test_translate_sections_skips_chinese_source_text(tmp_path: Path):
     rows = translate_sections(
         [{"label": "摘要", "text": "这是一段中文摘要，已经可以直接阅读，不需要再生成中文阅读版。"}],

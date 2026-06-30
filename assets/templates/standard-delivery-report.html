@@ -56,11 +56,16 @@
     </ul>
   </div>
 
-  {% if card.excerpt_lines %}
+  {% if card.excerpt_blocks %}
   <details class="card-details">
     <summary>关键摘录 / Abstract</summary>
-    {% for line in card.excerpt_lines %}
-    <p>{{ line }}</p>
+    {% for block in card.excerpt_blocks %}
+    <div class="reading-block">
+      <div class="reading-label">{{ block.label }}</div>
+      {% for paragraph in block.paragraphs %}
+      <p>{{ paragraph }}</p>
+      {% endfor %}
+    </div>
     {% endfor %}
   </details>
   {% endif %}
@@ -71,7 +76,13 @@
     {% for item in card.translation_items %}
     <div class="translation-item {{ item.status }}">
       <div class="translation-label">{{ item.label }}{% if item.status == "engine_not_ready" or item.status == "not_configured" %} · 翻译引擎未就绪{% elif item.status != "completed" %} · 待生成{% endif %}</div>
+      {% if item.paragraphs %}
+      {% for paragraph in item.paragraphs %}
+      <p>{{ paragraph }}</p>
+      {% endfor %}
+      {% else %}
       <p>{{ item.text }}</p>
+      {% endif %}
       {% if item.note %}<p class="muted">{{ item.note }}</p>{% endif %}
     </div>
     {% endfor %}
