@@ -240,8 +240,10 @@ def build_standard_delivery(task_dir: Path) -> dict:
 
     from .reports import build_standard_report
     from .knowledge.literature_graph import build_literature_knowledge
+    from .translation import translation_status
 
     knowledge_result = build_literature_knowledge(task_dir)
+    translation_result = translation_status(task_dir)
 
     report_result = build_standard_report(task_dir, output=paths["report"])
     report_ok = Path(report_result["report_path"]).exists()
@@ -295,6 +297,7 @@ def build_standard_delivery(task_dir: Path) -> dict:
         },
         "evidence_card_count": evidence_card_count,
         "knowledge": knowledge_result,
+        "translation": translation_result,
         "top_level_entries": top_level_entries,
         "topic_safe_name": safe_topic(
             json.loads((task_dir / "task.json").read_text(encoding="utf-8")).get("topic", "")

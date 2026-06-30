@@ -65,7 +65,7 @@ from .status import (
     status_payload,
     now_iso,
 )
-from .translation import translate_materials
+from .translation import translate_materials, translation_status
 
 app = typer.Typer(name="nuoyan", no_args_is_help=True)
 
@@ -646,18 +646,28 @@ def translate_materials_command(
 ) -> None:
     root = output_root or default_output_root()
     task_dir = find_task(root, task_id)
-    emit(
-        translate_materials(
-            task_dir,
-            limit=limit,
-            force=force,
-            provider=provider,
-            model=model,
-            base_url=base_url,
-            api_key=api_key,
-        ),
-        json_output,
+    result = translate_materials(
+        task_dir,
+        limit=limit,
+        force=force,
+        provider=provider,
+        model=model,
+        base_url=base_url,
+        api_key=api_key,
     )
+    result["translation_capability"] = translation_status(task_dir)
+    emit(result, json_output)
+
+
+@app.command("translation-status")
+def translation_status_command(
+    task_id: str = typer.Option(..., "--task-id"),
+    output_root: Optional[Path] = typer.Option(None, "--output-root"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    root = output_root or default_output_root()
+    task_dir = find_task(root, task_id)
+    emit(translation_status(task_dir), json_output)
 
 
 @app.command("verify-package")

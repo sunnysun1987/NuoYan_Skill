@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from ivd_research.jsonl import append_jsonl
-from ivd_research.translation import text_hash, translate_sections
+from ivd_research.translation import text_hash, translate_sections, translation_status
 
 
 def test_translate_sections_requires_real_engine_when_not_cached(tmp_path: Path):
@@ -49,3 +49,27 @@ def test_translate_sections_skips_chinese_source_text(tmp_path: Path):
 
     assert rows[0]["translation_zh"] == ""
     assert rows[0]["translation_status"] == "source_is_chinese"
+
+
+def test_translation_status_reports_builtin_command_and_missing_api(tmp_path: Path):
+    append_jsonl(
+        tmp_path / "data" / "materials.jsonl",
+        {
+            "material_id": "MAT-000001",
+            "raw_fields": {
+                "abstract_sections": [
+                    {
+                        "label": "Background",
+                        "text": "Influenza A and influenza B infections require rapid diagnostic testing in clinical settings.",
+                    }
+                ]
+            },
+        },
+    )
+
+    status = translation_status(tmp_path)
+
+    assert status["command_available"] is True
+    assert status["configured"] is False
+    assert status["status"] == "not_configured"
+    assert status["english_section_count"] == 1

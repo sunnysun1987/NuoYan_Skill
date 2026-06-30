@@ -8,7 +8,13 @@ from jinja2 import Template
 from .jsonl import append_jsonl, read_json, read_jsonl
 from .quality import OPTIONAL_NOT_STARTED_SCENARIOS, build_collection_alerts
 from .status import now_iso
-from .translation import extract_parameters, is_mostly_english, load_translation_cache, text_hash
+from .translation import (
+    extract_parameters,
+    is_mostly_english,
+    load_translation_cache,
+    text_hash,
+    translation_status,
+)
 
 
 REPORT_SECTIONS = [
@@ -2062,11 +2068,15 @@ def _screening_translation_items(
     card: dict,
     material: dict,
     translation_cache: dict[tuple[str, str, str], dict[str, Any]] | None = None,
+    translation_capability: dict[str, Any] | None = None,
 ) -> list[dict[str, str]]:
     material_id = str(material.get("material_id") or card.get("material_id") or "")
     raw = material.get("raw_fields") or {}
     sections = _structured_abstract_items(raw)
     cache = translation_cache or {}
+    capability = translation_capability or {}
+    configured = bool(capability.get("configured"))
+    command_available = bool(capability.get("command_available", True))
     items: list[dict[str, str]] = []
     for index, section in enumerate(sections[:3], start=1):
         label = str(section.get("label") or "Abstract")
@@ -2085,24 +2095,44 @@ def _screening_translation_items(
                 }
             )
         else:
+            if command_available and not configured:
+                text_zh = "内置翻译命令已存在，但当前未配置翻译 API，因此尚未生成专业中文阅读版。"
+                note = "配置 NUOYAN_TRANSLATION_API_KEY 或 OPENAI_API_KEY 后，运行内置翻译命令生成缓存，再重新生成报告即可显示完整译文。"
+                status = "not_configured"
+            elif command_available:
+                text_zh = "内置翻译命令已配置，但当前任务尚未生成该段专业中文阅读缓存。"
+                note = "运行内置翻译命令生成缓存后，再重新生成报告即可显示完整译文。"
+                status = "not_generated"
+            else:
+                text_zh = "当前环境未安装专业中文阅读生成能力。"
+                note = "请先安装或启用诺研内置翻译能力。"
+                status = "not_available"
             items.append(
                 {
                     "label": label,
-                    "status": "not_configured",
-                    "text": "尚未生成专业中文阅读版。配置翻译引擎后运行 translate-materials，可在此处显示完整中文译文。",
-                    "note": "当前保留英文原文，避免输出未经生成/审校的伪译文。",
+                    "status": status,
+                    "text": text_zh,
+                    "note": note,
                 }
             )
     if not items:
         for excerpt in card.get("excerpt_lines") or []:
             text = " ".join(str(excerpt or "").split())
             if is_mostly_english(text):
+                if command_available and not configured:
+                    text_zh = "内置翻译命令已存在，但当前未配置翻译 API，因此尚未生成专业中文阅读版。"
+                    note = "当前保留英文原文用于追溯。"
+                    status = "not_configured"
+                else:
+                    text_zh = "该英文摘录尚未生成专业中文阅读缓存。"
+                    note = "生成翻译缓存后可在此处显示完整中文译文。"
+                    status = "not_generated"
                 items.append(
                     {
                         "label": "Excerpt",
-                        "status": "not_configured",
-                        "text": "该摘录为英文材料，尚未生成专业中文阅读版。配置翻译引擎后可补齐。",
-                        "note": "当前保留英文原文用于追溯。",
+                        "status": status,
+                        "text": text_zh,
+                        "note": note,
                     }
                 )
                 break
@@ -2130,6 +2160,7 @@ def build_screening_cards(
 ) -> list[dict[str, Any]]:
     materials_by_id = {item.get("material_id"): item for item in materials}
     translation_cache = load_translation_cache(task_dir) if task_dir else {}
+    translation_capability = translation_status(task_dir) if task_dir else {}
     screening_cards: list[dict[str, Any]] = []
     for index, source_card in enumerate(evidence_cards, start=1):
         material = materials_by_id.get(source_card.get("material_id"), {})
@@ -2166,7 +2197,12 @@ def build_screening_cards(
         )[:8]
         row["summary_lines"] = _screening_summary_lines(row, material)
         row["excerpt_lines"] = _screening_excerpt_lines(row, material)
-        row["translation_items"] = _screening_translation_items(row, material, translation_cache)
+        row["translation_items"] = _screening_translation_items(
+            row,
+            material,
+            translation_cache=translation_cache,
+            translation_capability=translation_capability,
+        )
         row["review_points"] = _screening_review_points(row, material)
         row["data_text"] = " ".join(
             str(part or "")
@@ -2409,6 +2445,7 @@ def build_standard_report(task_dir: Path, output: Path | None = None) -> dict:
         "literature_graph_exists": (task_dir / "knowledge" / "literature_graph.json").exists(),
         "topic_index_exists": (task_dir / "knowledge" / "topic_index.json").exists(),
     }
+    translation_capability = translation_status(task_dir)
 
     literature_materials = _by_type(materials, "literature")
     pubmed_materials = [
@@ -2609,6 +2646,7 @@ def build_standard_report(task_dir: Path, output: Path | None = None) -> dict:
         business_decision=business_decision,
         evidence_map=evidence_map,
         knowledge_status=knowledge_status,
+        translation_capability=translation_capability,
         metric_facts=metric_facts[:100],
         source_runs=source_runs,
         failed_scenarios=failed_scenarios,

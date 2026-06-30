@@ -88,6 +88,13 @@ V2.1 adds a standard source-site baseline and lightweight local knowledge assets
 - `nuoyan import-literature-table --task-id <task_id> --path literature.xlsx --json` imports local CSV/XLSX literature lists.
 - `nuoyan build-knowledge --task-id <task_id> --json` generates metric facts, topic index, dedup index and a literature graph.
 
+Professional Chinese reading support is built into this repository as CLI code, not as a separate Codex skill:
+
+- `nuoyan translation-status --task-id <task_id> --json` checks whether the built-in translation command exists, whether an API key is configured, and how many cached translations are available.
+- `nuoyan translate-materials --task-id <task_id> --json` generates cached Chinese translations for English abstract sections using an OpenAI-compatible translation API.
+- Required configuration: set `NUOYAN_TRANSLATION_API_KEY` or `OPENAI_API_KEY`. Optional configuration: `NUOYAN_TRANSLATION_MODEL` and `NUOYAN_TRANSLATION_BASE_URL`.
+- HTML reports read `data/translations.jsonl`; if no cache exists, they show the translation capability status instead of inventing a partial translation.
+
 The final verification command reports whether the package is ready for business review:
 
 ```bash

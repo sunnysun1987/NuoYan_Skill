@@ -178,6 +178,66 @@ class TranslationEngine:
         return str(data["choices"][0]["message"]["content"]).strip()
 
 
+def translation_status(task_dir: Path) -> dict[str, Any]:
+    """Report whether the built-in translation command can generate Chinese reading text."""
+    engine = TranslationEngine()
+    cache_rows = list(read_jsonl(translation_cache_path(task_dir)))
+    completed_rows = [
+        row for row in cache_rows if row.get("status") == "completed" and row.get("translation_zh")
+    ]
+    english_sections = 0
+    for material in read_jsonl(task_dir / "data" / "materials.jsonl"):
+        raw = material.get("raw_fields") or {}
+        sections = raw.get("abstract_sections") or []
+        if isinstance(sections, list) and sections:
+            iterable = [
+                {
+                    "label": str(section.get("label") or "Abstract"),
+                    "text": str(section.get("text") or ""),
+                }
+                for section in sections
+                if isinstance(section, dict)
+            ]
+        else:
+            iterable = [
+                {
+                    "label": "Abstract",
+                    "text": str(raw.get("abstract") or raw.get("summary") or ""),
+                }
+            ]
+        for section in iterable:
+            if is_mostly_english(section.get("text", "")):
+                english_sections += 1
+    configured = engine.configured
+    if configured and completed_rows:
+        status = "ready_with_cache"
+        message = "内置翻译命令已配置，且已有专业中文阅读缓存。"
+    elif configured:
+        status = "ready_no_cache"
+        message = "内置翻译命令已配置，但当前任务尚未生成专业中文阅读缓存。"
+    else:
+        status = "not_configured"
+        message = "内置翻译命令已安装，但尚未配置翻译 API。配置后可生成专业中文阅读缓存。"
+    return {
+        "status": status,
+        "command_available": True,
+        "provider": engine.provider,
+        "model": engine.model,
+        "base_url_configured": bool(engine.base_url),
+        "api_key_configured": bool(engine.api_key),
+        "configured": configured,
+        "cache_path": str(translation_cache_path(task_dir)),
+        "cached_translation_count": len(completed_rows),
+        "english_section_count": english_sections,
+        "message_zh": message,
+        "setup_zh": (
+            "需要先配置翻译 API 密钥（NUOYAN_TRANSLATION_API_KEY 或 OPENAI_API_KEY）；"
+            "可选配置模型和服务地址（NUOYAN_TRANSLATION_MODEL / NUOYAN_TRANSLATION_BASE_URL）。"
+            "配置后由 agent 运行诺研内置翻译命令生成缓存，再重新生成报告。"
+        ),
+    }
+
+
 def translate_sections(
     sections: list[dict[str, Any]],
     *,

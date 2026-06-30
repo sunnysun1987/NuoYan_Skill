@@ -67,7 +67,7 @@
     <summary>专业中文阅读</summary>
     {% for item in card.translation_items %}
     <div class="translation-item {{ item.status }}">
-      <div class="translation-label">{{ item.label }}{% if item.status != "completed" %} · 待生成{% endif %}</div>
+      <div class="translation-label">{{ item.label }}{% if item.status == "not_configured" %} · 翻译 API 未配置{% elif item.status != "completed" %} · 待生成{% endif %}</div>
       <p>{{ item.text }}</p>
       {% if item.note %}<p class="muted">{{ item.note }}</p>{% endif %}
     </div>
@@ -155,6 +155,17 @@
               <li>再看“核心必读文献”，优先复核 A 类证据，不要从全部材料里盲找。</li>
               <li>最后用“全部证据卡”按样本、方法学、参照、性能指标和证据类型筛选。</li>
             </ol>
+          </section>
+          <section class="decision-card">
+            <h2>专业中文阅读能力</h2>
+            <p>{{ translation_capability.message_zh }}</p>
+            <div class="field-grid">
+              <div><b>翻译能力</b><span>{% if translation_capability.command_available %}已内置于诺研_skill{% else %}未安装{% endif %}</span></div>
+              <div><b>API 配置</b><span>{% if translation_capability.configured %}已配置{% else %}未配置{% endif %}</span></div>
+              <div><b>英文段落</b><span>{{ translation_capability.english_section_count }}</span></div>
+              <div><b>已缓存译文</b><span>{{ translation_capability.cached_translation_count }}</span></div>
+            </div>
+            <p class="muted">{{ translation_capability.setup_zh }}</p>
           </section>
         </div>
 
