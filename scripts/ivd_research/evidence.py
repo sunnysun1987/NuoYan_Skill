@@ -6,6 +6,8 @@ from pydantic import ValidationError
 from .jsonl import append_jsonl, read_json, read_jsonl
 from .models import EvidenceCard
 from .translation import parameter_lines
+from .knowledge.fact_extractor import extract_metric_facts
+from .source_adapters.source_sites import get_source_site
 
 
 SECTION_BY_MATERIAL_TYPE = {
@@ -82,6 +84,9 @@ def _identifier(material: dict[str, Any]) -> str:
         "standard_number",
         "publication_number",
         "patent_number",
+        "identifier",
+        "nct_id",
+        "uniprot_id",
     ]:
         value = raw.get(key)
         if isinstance(value, str) and value.strip():
@@ -192,6 +197,36 @@ def _publication_or_issue_date(material: dict[str, Any]) -> str:
     return _field_text(raw, "publication_date", "publish_date", "approval_date")
 
 
+def _source_site_id(material: dict[str, Any]) -> str:
+    raw = material.get("raw_fields") or {}
+    return (
+        material.get("source_site_id")
+        or raw.get("source_site_id")
+        or material.get("source_scenario")
+        or ""
+    )
+
+
+def _source_name(material: dict[str, Any]) -> str:
+    raw = material.get("raw_fields") or {}
+    source_site_id = _source_site_id(material)
+    source_site = get_source_site(source_site_id) if source_site_id else None
+    return (
+        material.get("source_name")
+        or raw.get("source_name")
+        or (source_site.display_name if source_site else "")
+        or material.get("source_scenario")
+        or ""
+    )
+
+
+def _one_sentence_conclusion(title: str, facts: list[str]) -> str:
+    for fact in facts:
+        if fact.startswith("Abstract"):
+            return f"{title} 提供文献摘要证据，需结合样本、平台和参照方法复核可用于的研发判断。"
+    return f"{title} 已形成自动证据草稿，需人工确认相关性和报告用途。"
+
+
 def build_draft_evidence_card(
     task_dir: Path,
     material: dict[str, Any],
@@ -210,6 +245,13 @@ def build_draft_evidence_card(
     material_type = material.get("material_type", "unknown")
     source_location = source_path or location or "material_record"
     review_facts = _draft_review_facts(material, excerpt, task_dir=task_dir)
+    metric_facts = extract_metric_facts(
+        material,
+        evidence_card_id=evidence_card_id,
+        excerpt=excerpt,
+    )
+    for fact in metric_facts:
+        review_facts.append(f"参数事实[{fact.metric_type}]：{fact.value}；原文：{fact.excerpt[:180]}")
     summary_detail = "；".join(review_facts[:4])
     summary = f"自动草稿证据卡：{title}"
     if summary_detail:
@@ -217,6 +259,12 @@ def build_draft_evidence_card(
     summary = f"{summary}。该卡基于已采集材料生成，需研发人员复核后使用。"
     taxonomy_tag = _taxonomy_tag(material)
     exact_data = "\n".join([*review_facts, f"原文摘录：{excerpt}"] if excerpt else review_facts)
+    raw = material.get("raw_fields") or {}
+    source_site_id = _source_site_id(material)
+    source_name = _source_name(material)
+    fulltext_status = _field_text(raw, "fulltext_status", "xml_status") or material.get("extracted_text_status", "")
+    permission_status = "受限" if material.get("failure_type") in {"permission_required", "needs_login"} else ""
+    one_sentence = _one_sentence_conclusion(title, review_facts)
 
     return EvidenceCard(
         evidence_card_id=evidence_card_id,
@@ -225,6 +273,15 @@ def build_draft_evidence_card(
         title=title,
         source_type=_source_type(material),
         source_quality="自动草稿，未人工复核",
+        source_site_id=source_site_id,
+        source_name=source_name,
+        source_input_trace={
+            "source_site_id": source_site_id,
+            "source_name": source_name,
+            "source_url": material.get("source_url", ""),
+            "search_keyword_or_query": material.get("search_keyword_or_query", ""),
+            "collection_time": material.get("collection_time", ""),
+        },
         publication_or_issue_date=_publication_or_issue_date(material),
         identifier=_identifier(material),
         summary=summary,
@@ -232,6 +289,7 @@ def build_draft_evidence_card(
         primary_tag=taxonomy_tag,
         secondary_tag="待人工归类",
         evidence_conclusion=summary,
+        one_sentence_conclusion=one_sentence,
         exact_data=exact_data or excerpt,
         source_location=source_location,
         original_excerpt_or_table_marker=location or "material_record",
@@ -250,6 +308,28 @@ def build_draft_evidence_card(
         include_in_report=False,
         report_usage="初稿线索，仅供复核",
         facts=review_facts or [summary],
+        metric_facts=[fact.model_dump(mode="json") for fact in metric_facts],
+        disease=_field_text(raw, "disease", "condition"),
+        biomarker_or_target=_field_text(raw, "biomarker", "target", "entity"),
+        sample_type=_field_text(raw, "sample_type"),
+        intended_use=_field_text(raw, "intended_use"),
+        population=_field_text(raw, "population", "participants", "patients"),
+        platform=_field_text(raw, "platform"),
+        reference_standard=_field_text(raw, "reference_standard", "comparator"),
+        research_stage="自动草稿",
+        priority_level="B" if metric_facts or _identifier(material) else "C",
+        card_status="draft_needs_review",
+        fulltext_status=str(fulltext_status or ""),
+        permission_status=permission_status,
+        gap_tasks=[
+            item
+            for item in [
+                "补充全文或 PDF" if fulltext_status in {"metadata_only", "parse_failed", "not_attempted"} else "",
+                "复核权限受限来源" if permission_status else "",
+                "人工确认指标事实" if metric_facts else "",
+            ]
+            if item
+        ],
         limitations=["自动生成，未人工复核；只能作为报告初稿线索。"],
         needs_review=True,
         review_reasons=["自动生成草稿，需人工确认相关性、标签和结论。"],
@@ -382,6 +462,12 @@ def export_evidence_card_files(task_dir: Path, card: dict[str, Any]) -> None:
         for fact in (card.get("key_facts") or card.get("facts") or [])
         if str(fact).startswith("参数")
         or str(fact).startswith("摘录参数")
+        or str(fact).startswith("参数事实")
+    ]
+    metric_lines = [
+        f"{fact.get('metric_type', '')}：{fact.get('value', '')}；{fact.get('excerpt', '')[:220]}"
+        for fact in card.get("metric_facts", [])
+        if isinstance(fact, dict)
     ]
     section_prefixes = (
         "Abstract",
@@ -404,6 +490,9 @@ def export_evidence_card_files(task_dir: Path, card: dict[str, Any]) -> None:
             f"- 证据卡ID：{card_id}",
             f"- 材料ID：{card.get('material_id', '')}",
             f"- 材料类型：{card.get('material_type', '')}",
+            f"- 信源：{card.get('source_name', '') or card.get('source_site_id', '')}",
+            f"- 来源链接：{(card.get('source_input_trace') or {}).get('source_url', '')}",
+            f"- 研发优先级：{card.get('priority_level', '')}",
             f"- 证据强度：{card.get('evidence_strength', '')}",
             f"- 是否纳入报告：{'是' if card.get('include_in_report') else '否'}",
             f"- 标签：{'；'.join(card.get('taxonomy_tags') or [])}",
@@ -421,13 +510,31 @@ def export_evidence_card_files(task_dir: Path, card: dict[str, Any]) -> None:
             "\n".join(f"- {line}" for line in abstract_lines) if abstract_lines else "未解析到结构化 Abstract。",
             "",
             "## 参数要点",
-            "\n".join(f"- {line}" for line in parameter_lines_) if parameter_lines_ else "未识别到明确参数。",
+            "\n".join(f"- {line}" for line in (metric_lines + parameter_lines_)) if (metric_lines or parameter_lines_) else "未识别到明确参数。",
+            "",
+            "## 研发定位",
+            "\n".join(
+                f"- {label}：{value}"
+                for label, value in [
+                    ("疾病/适应症", card.get("disease", "")),
+                    ("标志物/靶标", card.get("biomarker_or_target", "")),
+                    ("样本类型", card.get("sample_type", "")),
+                    ("预期用途", card.get("intended_use", "")),
+                    ("平台/方法学", card.get("platform", "")),
+                    ("参照方法", card.get("reference_standard", "")),
+                ]
+                if value
+            )
+            or "待人工补充。",
             "",
             "## 关键摘录",
             "\n".join(excerpt_lines) if excerpt_lines else "暂无关键摘录。",
             "",
             "## 局限与复核原因",
             "\n".join(f"- {item}" for item in (card.get("limitations") or card.get("review_reasons") or [])),
+            "",
+            "## 补证任务",
+            "\n".join(f"- {item}" for item in (card.get("gap_tasks") or [])) or "暂无自动补证任务。",
             "",
         ]
     )

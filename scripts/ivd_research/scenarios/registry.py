@@ -161,6 +161,19 @@ def all_scenarios() -> list[ScenarioAdapter]:
             adapter_version="0.1.0",
             content_validation_rules=["文件存在", "生成待确认材料类型"],
         ),
+        ScenarioAdapter(
+            scenario_id="life_science_research",
+            label_zh="life-science-research 外部科学数据库证据",
+            material_type="literature",
+            adapter_id="life_science_research_bridge",
+            adapter_version="2.1.0",
+            keyword_types=["primary_en", "target", "disease", "evidence_lane"],
+            content_validation_rules=[
+                "插件结果必须回写材料管线",
+                "每条结果保留 source_database、query、entity、source_url 和 source_run",
+                "临床、遗传、通路证据不得直接外推为诊断性能证据",
+            ],
+        ),
     ]
 
 

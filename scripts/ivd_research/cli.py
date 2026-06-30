@@ -21,6 +21,7 @@ from .evidence import (
     validate_staged_evidence,
 )
 from .import_finding import import_finding
+from .knowledge.literature_graph import build_literature_knowledge
 from .local_import import import_local
 from .models import FailureType, Material
 from .paths import default_output_root
@@ -36,6 +37,7 @@ from .scenarios import (
     openalex_literature,
     pubmed_pmc,
     standards_current,
+    local_import_adapter,
     wiley_alz,
     yiigle_fulltext,
     yiigle_zhjyyxzz,
@@ -44,6 +46,9 @@ from .scenarios import (
 from .scenarios.registry import get_scenario
 from .scenarios.base import ScenarioResult
 from .site_profiles import record_site_observation, site_profile
+from .source_adapters.life_science_research_bridge import import_life_science_findings
+from .source_adapters.csv_literature_import import import_literature_table
+from .source_adapters.source_sites import all_source_sites, export_source_sites
 from .jsonl import append_jsonl
 from .staging import (
     commit_staged_report_sections,
@@ -140,6 +145,7 @@ SCENARIO_COLLECTORS = {
     "pmc_fulltext": pubmed_pmc.collect_pmc,
     "openalex_literature": openalex_literature.collect,
     "yiigle_fulltext": yiigle_fulltext.collect,
+    "local_import": local_import_adapter.collect,
 }
 
 DELIVERY_HTTP_SCENARIOS = [
@@ -188,6 +194,14 @@ def _record_scenario_result(task_dir: Path, state, scenario: str, result) -> Non
         if result.status != "completed":
             state.scenario_statuses[scenario].failure_count += 1
         state.scenario_statuses[scenario].last_message = result.message_zh
+
+
+def _should_retry_scenario_result(result) -> bool:
+    return not getattr(result, "materials", []) and result.status in {
+        "no_results",
+        "no_valid_materials",
+        "collection_failed",
+    }
 
 
 def _exception_result(scenario: str, exc: Exception) -> ScenarioResult:
@@ -343,25 +357,51 @@ def run_scenario_command(
         )
     adapter = get_scenario(scenario)
     plans = scenario_query_plans(state).get(scenario) or default_query_plan(state)
-    plan = plans[0]
-    params = {
-        "material_id": next_material_id(task_dir),
-        "query": plan.query,
-        **plan.params,
-    }
     collector = SCENARIO_COLLECTORS.get(scenario)
-    if collector:
-        result = collector(task_id=task_id, task_dir=task_dir, params=params)
-    else:
-        result = adapter.run(task_id=task_id, task_dir=task_dir, params=params)
-    record_materials(task_dir, result.materials)
+    attempts = []
+    result = None
+    for plan in plans:
+        params = {
+            "material_id": next_material_id(task_dir),
+            "query": plan.query,
+            **plan.params,
+        }
+        if collector:
+            result = collector(task_id=task_id, task_dir=task_dir, params=params)
+        else:
+            result = adapter.run(task_id=task_id, task_dir=task_dir, params=params)
+        attempts.append(
+            {
+                "query_role": plan.params.get("query_role", ""),
+                "query": plan.query,
+                "status": result.status,
+                "material_count": len(result.materials),
+                "message_zh": result.message_zh,
+            }
+        )
+        if not _should_retry_scenario_result(result):
+            break
 
-    if scenario in state.scenario_statuses:
-        state.scenario_statuses[scenario].status = result.status
-        state.scenario_statuses[scenario].material_count += len(result.materials)
-        if result.status != "completed":
-            state.scenario_statuses[scenario].failure_count += 1
-        state.scenario_statuses[scenario].last_message = result.message_zh
+    if result is None:
+        result = ScenarioResult(
+            status="needs_manual_review",
+            failure_type=FailureType.NEEDS_MANUAL_REVIEW,
+            message_zh=f"{adapter.label_zh} 未生成可执行检索计划。",
+        )
+    if len(attempts) > 1:
+        result.message_zh = (
+            f"{result.message_zh} 已按 {len(attempts)} 个检索层级重试。"
+        )
+    _record_scenario_result(task_dir, state, scenario, result)
+    append_jsonl(
+        task_dir / "logs" / "events.jsonl",
+        {
+            "time": now_iso(),
+            "event": "scenario_query_attempts",
+            "scenario_id": scenario,
+            "attempts": attempts,
+        },
+    )
     save_task(state)
     emit(result.model_dump(mode="json"), json_output)
 
@@ -418,6 +458,79 @@ def import_local_command(
     except FileNotFoundError as exc:
         raise typer.BadParameter(str(exc)) from exc
     emit(result, json_output)
+
+
+@app.command("import-life-science-findings")
+def import_life_science_findings_command(
+    task_id: str = typer.Option(..., "--task-id"),
+    findings_json_file: Path = typer.Option(..., "--findings-json-file"),
+    query: str = typer.Option("", "--query"),
+    skill_name: str = typer.Option("life-science-research:research-router-skill", "--skill-name"),
+    plugin_name: str = typer.Option("life-science-research", "--plugin-name"),
+    output_root: Optional[Path] = typer.Option(None, "--output-root"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    root = output_root or default_output_root()
+    task_dir = find_task(root, task_id)
+    try:
+        payload = json.loads(findings_json_file.read_text(encoding="utf-8-sig"))
+    except JSONDecodeError as exc:
+        raise typer.BadParameter("--findings-json-file must contain JSON") from exc
+    findings = payload.get("findings", payload) if isinstance(payload, dict) else payload
+    if not isinstance(findings, list):
+        raise typer.BadParameter("life-science findings JSON must be a list or {'findings': [...]}.")
+    result = import_life_science_findings(
+        task_id,
+        task_dir,
+        findings,
+        query=query,
+        skill_name=skill_name,
+        plugin_name=plugin_name,
+    )
+    emit(result, json_output)
+
+
+@app.command("source-sites")
+def source_sites_command(
+    output: Optional[Path] = typer.Option(None, "--output"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    if output:
+        export_source_sites(output)
+        emit({"source_sites_path": str(output), "count": len(all_source_sites())}, json_output)
+        return
+    emit(
+        {"source_sites": [site.model_dump(mode="json") for site in all_source_sites()]},
+        json_output,
+    )
+
+
+@app.command("import-literature-table")
+def import_literature_table_command(
+    task_id: str = typer.Option(..., "--task-id"),
+    path: Path = typer.Option(..., "--path"),
+    source: str = typer.Option("csv_literature_import", "--source"),
+    output_root: Optional[Path] = typer.Option(None, "--output-root"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    root = output_root or default_output_root()
+    task_dir = find_task(root, task_id)
+    try:
+        result = import_literature_table(task_dir, path, source=source)
+    except (FileNotFoundError, ValueError) as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    emit(result, json_output)
+
+
+@app.command("build-knowledge")
+def build_knowledge_command(
+    task_id: str = typer.Option(..., "--task-id"),
+    output_root: Optional[Path] = typer.Option(None, "--output-root"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    root = output_root or default_output_root()
+    task_dir = find_task(root, task_id)
+    emit(build_literature_knowledge(task_dir), json_output)
 
 
 @app.command("create-analysis-requests")
@@ -647,6 +760,7 @@ def run_full_pipeline_command(
         save_task(state)
 
     evidence_result = generate_draft_evidence_cards(task_dir)
+    knowledge_result = build_literature_knowledge(task_dir)
     review_result = export_review(task_dir)
     materials_report = build_report(task_dir, "materials")
     feasibility_report = build_report(task_dir, "feasibility")
@@ -657,6 +771,7 @@ def run_full_pipeline_command(
             "collection": collection_results,
             "network_preflight": network_status,
             "evidence": evidence_result,
+            "knowledge": knowledge_result,
             "review": review_result,
             "reports": {
                 "materials": materials_report,
@@ -767,6 +882,7 @@ def run_delivery_pipeline_command(
         save_task(state)
 
     evidence_result = generate_draft_evidence_cards(task_dir)
+    knowledge_result = build_literature_knowledge(task_dir)
     analysis_requests = create_analysis_requests(task_dir)
     review_result = export_review(task_dir)
     materials_report = build_report(task_dir, "materials")
@@ -778,6 +894,7 @@ def run_delivery_pipeline_command(
             "collection": collection_results,
             "network_preflight": network_status,
             "evidence": evidence_result,
+            "knowledge": knowledge_result,
             "analysis_requests": analysis_requests,
             "review": review_result,
             "reports": {

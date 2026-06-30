@@ -10,7 +10,7 @@
 <main>
   <header class="page-header">
     <h1>{{ report_title }}</h1>
-    <p class="meta"><span>任务ID：{{ task_id }}</span><span>生成时间：{{ generated_at }}</span><span>报告版本：Nuoyan Skill V2.0</span></p>
+    <p class="meta"><span>任务ID：{{ task_id }}</span><span>生成时间：{{ generated_at }}</span><span>报告版本：Nuoyan Skill V2.1</span></p>
   </header>
 
   <div class="tab-shell">
@@ -55,6 +55,14 @@
           <div class="value warn">{{ failed_scenarios|length }}</div>
           <div class="label">受限场景</div>
         </div>
+        <div class="metric-card">
+          <div class="value info">{{ knowledge_status.metric_fact_count }}</div>
+          <div class="label">指标事实</div>
+        </div>
+        <div class="metric-card">
+          <div class="value info">{{ source_runs|length }}</div>
+          <div class="label">外部科学证据批次</div>
+        </div>
       </div>
 
       <div class="section-card">
@@ -96,6 +104,11 @@
               <td>本地材料是补充资料，不作为本次自动检索和报告生成的必要条件。</td>
             </tr>
             <tr>
+              <td>V2.1 知识沉淀</td>
+              <td><span class="status-pill {% if knowledge_status.literature_graph_exists and knowledge_status.topic_index_exists %}success{% else %}warn{% endif %}">{% if knowledge_status.literature_graph_exists and knowledge_status.topic_index_exists %}已生成{% else %}待生成{% endif %}</span></td>
+              <td>输出指标事实、主题索引和文献关系图，用于后续项目复用和关联挖掘。</td>
+            </tr>
+            <tr>
               <td>人工复核</td>
               <td><span class="status-pill warn">{{ review_source }}</span></td>
               <td>Excel 审阅与补证任务表是进入正式立项会前的业务复核入口。</td>
@@ -103,6 +116,28 @@
           </tbody>
         </table>
       </div>
+
+      {% if source_runs %}
+      <div class="section-card">
+        <h2>外部科学数据库证据</h2>
+        <table>
+          <thead>
+            <tr><th>批次</th><th>证据通道</th><th>来源库</th><th>查询式</th><th>导入材料</th></tr>
+          </thead>
+          <tbody>
+            {% for run in source_runs %}
+            <tr>
+              <td>{{ run.source_run_id }}</td>
+              <td>{{ run.evidence_lane }}</td>
+              <td>{{ run.source_database }}</td>
+              <td>{{ run.query }}</td>
+              <td>{{ run.imported_material_ids|length }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
     </section>
 
     <section class="tab-panel" id="tab-analysis">
@@ -203,6 +238,8 @@
             </div>
             <div class="field-grid">
               <div><b>来源</b><span>{{ source.source_scenario_zh or "-" }}</span></div>
+              {% if card.source_name %}<div><b>信源</b><span>{{ card.source_name }}</span></div>{% endif %}
+              {% if card.priority_level %}<div><b>优先级</b><span>{{ card.priority_level }}</span></div>{% endif %}
               <div><b>日期</b><span>{{ source.publication_date_display or source.display_year or source.raw_fields.get("approval_date", "") or "-" }}</span></div>
               {% if source.pmid %}<div><b>PMID</b><span>{{ source.pmid }}</span></div>{% endif %}
               {% if source.pmcid %}<div><b>PMCID</b><span>{{ source.pmcid }}</span></div>{% endif %}
@@ -222,6 +259,16 @@
               <ul class="fact-list">
                 {% for fact in card.parameter_facts %}
                 <li>{{ fact }}</li>
+                {% endfor %}
+              </ul>
+            </div>
+            {% endif %}
+            {% if card.gap_tasks %}
+            <div class="parameter-block">
+              <h4>补证任务</h4>
+              <ul class="fact-list">
+                {% for task in card.gap_tasks %}
+                <li>{{ task }}</li>
                 {% endfor %}
               </ul>
             </div>
@@ -261,6 +308,28 @@
           </tbody>
         </table>
       </div>
+
+      {% if metric_facts %}
+      <div class="section-card">
+        <h2>指标事实</h2>
+        <table>
+          <thead>
+            <tr><th>指标</th><th>数值</th><th>材料ID</th><th>证据卡ID</th><th>原文线索</th></tr>
+          </thead>
+          <tbody>
+            {% for fact in metric_facts %}
+            <tr>
+              <td>{{ fact.metric_type }}</td>
+              <td>{{ fact.value }}</td>
+              <td>{{ fact.material_id }}</td>
+              <td>{{ fact.evidence_card_id }}</td>
+              <td>{{ fact.excerpt }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
 
       <div class="section-card">
         <h2>文献清单</h2>

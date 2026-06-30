@@ -428,9 +428,15 @@ def normalize_evidence_cards(evidence_cards: list[dict]) -> list[dict]:
             fact
             for fact in row["key_facts"]
             if fact.startswith("参数") or fact.startswith("摘录参数")
+            or fact.startswith("参数事实")
+        ]
+        metric_parameter_facts = [
+            f"{fact.get('metric_type', '')}：{fact.get('value', '')}；{fact.get('excerpt', '')[:160]}"
+            for fact in row.get("metric_facts", [])
+            if isinstance(fact, dict)
         ]
         row["translation_facts"] = []
-        row["parameter_facts"] = parameter_facts[:10]
+        row["parameter_facts"] = (metric_parameter_facts + parameter_facts)[:10]
         # Map internal keys to Chinese display labels
         row["material_type_zh"] = MATERIAL_TYPE_LABELS.get(
             row.get("material_type", ""), row.get("material_type", "")
@@ -1388,6 +1394,14 @@ def build_standard_report(task_dir: Path, output: Path | None = None) -> dict:
         scenario_statuses=scenario_statuses,
     )
     analysis = build_feasibility_analysis(materials, evidence_cards, scenario_statuses)
+    metric_facts = list(read_jsonl(task_dir / "knowledge" / "metric_facts.jsonl"))
+    source_runs = list(read_jsonl(task_dir / "data" / "source_runs.jsonl"))
+    knowledge_status = {
+        "metric_fact_count": len(metric_facts),
+        "source_run_count": len(source_runs),
+        "literature_graph_exists": (task_dir / "knowledge" / "literature_graph.json").exists(),
+        "topic_index_exists": (task_dir / "knowledge" / "topic_index.json").exists(),
+    }
 
     literature_materials = _by_type(materials, "literature")
     pubmed_materials = [
@@ -1573,6 +1587,9 @@ def build_standard_report(task_dir: Path, output: Path | None = None) -> dict:
         analysis=analysis,
         business_decision=business_decision,
         evidence_map=evidence_map,
+        knowledge_status=knowledge_status,
+        metric_facts=metric_facts[:100],
+        source_runs=source_runs,
         failed_scenarios=failed_scenarios,
         search_profile=build_search_profile(task),
         project_analysis_sections=project_analysis_sections,

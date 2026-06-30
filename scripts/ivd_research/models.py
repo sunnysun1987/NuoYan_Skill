@@ -54,6 +54,10 @@ class Material(BaseModel):
     failure_type: FailureType | None = None
     failure_reason: str = ""
     possible_duplicate_keys: list[str] = Field(default_factory=list)
+    source_site_id: str = ""
+    source_name: str = ""
+    evidence_lane: str = ""
+    source_run_id: str = ""
 
     @property
     def display_labels(self) -> dict[str, str]:
@@ -97,6 +101,33 @@ class EvidenceCard(BaseModel):
     needs_review: bool = True
     review_reasons: list[str] = Field(default_factory=lambda: ["未人工复核"])
     manual_review: dict[str, Any] = Field(default_factory=dict)
+    source_site_id: str = ""
+    source_input_trace: dict[str, str] = Field(default_factory=dict)
+    source_name: str = ""
+    priority_level: str = "C"
+    card_status: str = "draft"
+    disease: str = ""
+    biomarker_or_target: str = ""
+    sample_type: str = ""
+    intended_use: str = ""
+    population: str = ""
+    platform: str = ""
+    reference_standard: str = ""
+    research_stage: str = ""
+    one_sentence_conclusion: str = ""
+    metric_facts: list[dict[str, Any]] = Field(default_factory=list)
+    related_material_ids: list[str] = Field(default_factory=list)
+    relation_type: str = ""
+    relation_reason: str = ""
+    shared_marker: str = ""
+    shared_cohort: str = ""
+    cites: list[str] = Field(default_factory=list)
+    gap_tasks: list[str] = Field(default_factory=list)
+    permission_status: str = ""
+    fulltext_status: str = ""
+    reviewer_role: str = ""
+    manual_decision: str = ""
+    reviewed_at: str = ""
 
     @property
     def evidence_strength_label(self) -> str:
@@ -112,6 +143,74 @@ class ScenarioStatus(BaseModel):
     material_count: int = 0
     failure_count: int = 0
     last_message: str = ""
+
+
+class LiteratureRecord(BaseModel):
+    material_id: str
+    title: str
+    pmid: str = ""
+    pmcid: str = ""
+    doi: str = ""
+    journal: str = ""
+    publication_date: str = ""
+    source_database: str = ""
+    fulltext_status: str = ""
+    pdf_status: str = ""
+    similar_article_count: int = 0
+    duplicate_keys: list[str] = Field(default_factory=list)
+
+
+class MetricFact(BaseModel):
+    metric_fact_id: str = ""
+    metric_type: str
+    value: str
+    comparator: str = ""
+    cohort: str = ""
+    sample_type: str = ""
+    platform: str = ""
+    reference_standard: str = ""
+    excerpt: str
+    evidence_card_id: str = ""
+    material_id: str = ""
+    source_location: str = ""
+
+
+class EvidenceRelation(BaseModel):
+    source_id: str
+    target_id: str
+    relation_type: str
+    weight: float = 0.0
+    evidence: str = ""
+
+
+class SourceRun(BaseModel):
+    source_run_id: str
+    task_id: str = ""
+    evidence_lane: str
+    source_database: str
+    query: str
+    plugin_name: str = ""
+    skill_name: str = ""
+    status: str = "imported"
+    imported_material_ids: list[str] = Field(default_factory=list)
+    collection_time: str = ""
+
+
+class SourceSite(BaseModel):
+    source_site_id: str
+    display_name: str
+    source_category: str
+    base_url: str
+    search_url_template: str = ""
+    detail_url_pattern: str = ""
+    access_mode: str
+    auth_required: bool = False
+    query_fields: list[str] = Field(default_factory=list)
+    capture_fields: list[str] = Field(default_factory=list)
+    field_map: dict[str, str] = Field(default_factory=dict)
+    adapter_id: str
+    restriction_notes: str = ""
+    source_origin: str = "诺研 Skill V2.1 20260630 开发说明内置信源基线"
 
 
 class RecommendedAction(BaseModel):

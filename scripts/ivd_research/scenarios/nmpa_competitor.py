@@ -108,6 +108,21 @@ def collect(task_id, task_dir, params):
                 message_zh=f"NMPA Playwright DOM 兜底采集完成，解析竞品/注册材料 {len(materials)} 条。",
                 collection_errors=errors,
             )
+        failed_errors = [
+            error
+            for error in errors
+            if error.get("status") == FailureType.COLLECTION_FAILED.value
+        ]
+        if failed_errors:
+            return ScenarioResult(
+                status=FailureType.COLLECTION_FAILED.value,
+                failure_type=FailureType.COLLECTION_FAILED,
+                message_zh=(
+                    "NMPA HTTP/API 受站点防护限制，Edge 不可用后 Playwright DOM 兜底未能定位注册分类或搜索表单。"
+                    "这属于渠道适配失败，不应判定为无注册结果；建议使用 scout-browser-workflow 重新观察页面结构。"
+                ),
+                collection_errors=errors,
+            )
         return ScenarioResult(
             status=FailureType.NO_RESULTS.value,
             failure_type=FailureType.NO_RESULTS,

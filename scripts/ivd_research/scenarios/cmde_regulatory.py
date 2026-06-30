@@ -76,6 +76,11 @@ def _fetch_html(url: str) -> tuple[str, str, int]:
     return content.decode("utf-8", errors="ignore"), final_url, status_code
 
 
+def _looks_like_security_script_page(html: str) -> bool:
+    text = _clean_text(BeautifulSoup(html, "html.parser").get_text(" ", strip=True))
+    return not text and ("$_ts" in html or "_$_v()" in html)
+
+
 def _keyword_tokens(query: str) -> list[str]:
     tokens = [item for item in re.split(r"[\s;；,，/]+", query.strip()) if item]
     return tokens or [query.strip()] if query.strip() else []
@@ -427,6 +432,15 @@ def collect(task_id, task_dir, params):
             list_html,
         )
         list_snapshots[final_list_url] = snapshot
+        if _looks_like_security_script_page(list_html):
+            collection_errors.append(
+                {
+                    "url": final_list_url,
+                    "status": FailureType.PERMISSION_REQUIRED.value,
+                    "reason": "CMDE 公开栏目页返回安全脚本空正文，无法解析栏目列表。",
+                }
+            )
+            continue
         for entry in parse_cmde_list_html(list_html, final_list_url):
             strategy = _match_entry(entry, query)
             if not strategy:
@@ -443,6 +457,19 @@ def collect(task_id, task_dir, params):
         matched = [item for item in matched if item[1] == "exact_query_match"]
     matched = matched[:result_limit]
     if not matched:
+        if collection_errors and any(
+            item.get("status") == FailureType.PERMISSION_REQUIRED.value
+            for item in collection_errors
+        ):
+            return ScenarioResult(
+                status=FailureType.PERMISSION_REQUIRED.value,
+                failure_type=FailureType.PERMISSION_REQUIRED,
+                message_zh=(
+                    f"{SUBJECT_ZH} 返回安全脚本或受限页面，未能取得可解析的 CMDE 检索/栏目结果。"
+                    "请使用浏览器 workflow 观察页面，或通过公开链接/人工导入补证。"
+                ),
+                collection_errors=collection_errors,
+            )
         return ScenarioResult(
             status="no_results",
             failure_type=FailureType.NO_RESULTS,

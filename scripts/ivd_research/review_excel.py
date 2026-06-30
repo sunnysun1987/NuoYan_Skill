@@ -237,6 +237,24 @@ def export_review(task_dir: Path) -> dict:
 
     literature_review = wb.create_sheet("文献检索")
     literature_review.append(LITERATURE_HEADERS)
+    metric_ws = wb.create_sheet("指标事实")
+    metric_ws.append(
+        [
+            "指标事实ID",
+            "指标类型",
+            "数值",
+            "材料ID",
+            "证据卡ID",
+            "样本类型",
+            "平台",
+            "参照方法",
+            "队列/人群",
+            "比较对象",
+            "原文线索",
+            "来源位置",
+            "复核状态",
+        ]
+    )
 
     for material in materials:
         material_type = material.get("material_type", "unknown")
@@ -292,6 +310,25 @@ def export_review(task_dir: Path) -> dict:
                     "未复核",
                 ]
             )
+
+    for fact in read_jsonl(task_dir / "knowledge" / "metric_facts.jsonl"):
+        metric_ws.append(
+            [
+                fact.get("metric_fact_id", ""),
+                fact.get("metric_type", ""),
+                fact.get("value", ""),
+                fact.get("material_id", ""),
+                fact.get("evidence_card_id", ""),
+                fact.get("sample_type", ""),
+                fact.get("platform", ""),
+                fact.get("reference_standard", ""),
+                fact.get("cohort", ""),
+                fact.get("comparator", ""),
+                fact.get("excerpt", ""),
+                fact.get("source_location", ""),
+                "未复核",
+            ]
+        )
 
     for ws in wb.worksheets:
         style_sheet(ws)

@@ -37,6 +37,44 @@ RESEARCH_STOP_WORDS = [
 
 DEFAULT_LITERATURE_TYPES = ["指南", "综述", "Meta分析", "原创论文", "病例报告"]
 
+LITERATURE_PROFILES = {
+    "quick_scan": {
+        "label_zh": "快速扫描",
+        "retmax": 50,
+        "similar_retmax": 3,
+        "similar_article_source_limit": 20,
+        "pdf_download_limit": 10,
+    },
+    "complete_literature": {
+        "label_zh": "完整文献",
+        "retmax": 200,
+        "similar_retmax": 5,
+        "similar_article_source_limit": 50,
+        "pdf_download_limit": 50,
+    },
+    "fulltext_first": {
+        "label_zh": "全文优先",
+        "retmax": 200,
+        "similar_retmax": 5,
+        "similar_article_source_limit": 50,
+        "pdf_download_limit": 100,
+    },
+    "core_must_read": {
+        "label_zh": "核心必读",
+        "retmax": 100,
+        "similar_retmax": 5,
+        "similar_article_source_limit": 30,
+        "pdf_download_limit": 30,
+    },
+    "chinese_first": {
+        "label_zh": "中文优先",
+        "retmax": 100,
+        "similar_retmax": 3,
+        "similar_article_source_limit": 20,
+        "pdf_download_limit": 20,
+    },
+}
+
 CN_TO_EN_KEYWORDS = {
     "肺炎支原体": "Mycoplasma pneumoniae",
     "支原体肺炎": "Mycoplasma pneumoniae pneumonia",
@@ -176,6 +214,15 @@ def _literature_retmax(state: Any) -> int | str:
         return 100
 
 
+def _literature_profile(state: Any) -> dict[str, Any]:
+    profile_id = str(_confirmation(state, "literature_profile", "complete_literature") or "complete_literature").strip()
+    profile = LITERATURE_PROFILES.get(profile_id, LITERATURE_PROFILES["complete_literature"])
+    requested_retmax = _literature_retmax(state)
+    result = {"profile_id": profile_id, **profile}
+    result["retmax"] = requested_retmax
+    return result
+
+
 def _date_range_bounds(
     date_range: Any,
     *,
@@ -275,7 +322,8 @@ def scenario_query_plans(state: Any) -> dict[str, list[ScenarioQueryPlan]]:
     methodology = str(_confirmation(state, "methodology", "") or "").strip()
     patent_scope = str(_confirmation(state, "patent_scope", "全球") or "全球").strip()
     literature_date_range = _literature_date_range(state) or _confirmation(state, "literature_years", 5)
-    literature_retmax = _literature_retmax(state)
+    literature_profile = _literature_profile(state)
+    literature_retmax = literature_profile["retmax"]
     fulltext_expression = build_yiigle_fulltext_expression(
         keyword=broad,
         date_range=literature_date_range,
@@ -324,6 +372,10 @@ def scenario_query_plans(state: Any) -> dict[str, list[ScenarioQueryPlan]]:
                     "query_role": "pubmed_keywords",
                     "retmax": literature_retmax,
                     "date_range": literature_date_range,
+                    "literature_profile": literature_profile["profile_id"],
+                    "similar_retmax": literature_profile["similar_retmax"],
+                    "similar_article_source_limit": literature_profile["similar_article_source_limit"],
+                    "pdf_download_limit": literature_profile["pdf_download_limit"],
                 },
             )
         ],
@@ -334,6 +386,8 @@ def scenario_query_plans(state: Any) -> dict[str, list[ScenarioQueryPlan]]:
                     "query_role": "pmc_keywords",
                     "retmax": literature_retmax,
                     "date_range": literature_date_range,
+                    "literature_profile": literature_profile["profile_id"],
+                    "pdf_download_limit": literature_profile["pdf_download_limit"],
                 },
             )
         ],
@@ -344,6 +398,7 @@ def scenario_query_plans(state: Any) -> dict[str, list[ScenarioQueryPlan]]:
                     "query_role": "openalex_keywords",
                     "retmax": literature_retmax,
                     "date_range": literature_date_range,
+                    "literature_profile": literature_profile["profile_id"],
                 },
             )
         ],

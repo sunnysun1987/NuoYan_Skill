@@ -64,6 +64,7 @@ TRACE_TOP_LEVELS = [
     "reports",
     "review",
     "staging",
+    "knowledge",
 ]
 
 TRACE_DISPLAY_NAMES = {
@@ -77,6 +78,7 @@ TRACE_DISPLAY_NAMES = {
     "reports": "06_内部历史报告_reports",
     "review": "07_审阅表与导入校验_review",
     "staging": "08_分析暂存区_staging",
+    "knowledge": "09_本地知识索引_knowledge",
 }
 
 TRACE_SUBDIR_DISPLAY_NAMES = {
@@ -237,6 +239,9 @@ def build_standard_delivery(task_dir: Path) -> dict:
     delivery_dir.mkdir(parents=True, exist_ok=True)
 
     from .reports import build_standard_report
+    from .knowledge.literature_graph import build_literature_knowledge
+
+    knowledge_result = build_literature_knowledge(task_dir)
 
     report_result = build_standard_report(task_dir, output=paths["report"])
     report_ok = Path(report_result["report_path"]).exists()
@@ -270,6 +275,10 @@ def build_standard_delivery(task_dir: Path) -> dict:
         target = trace_dir / TRACE_DISPLAY_NAMES.get(name, name)
         _copy_tree_contents(source, target)
 
+    from .source_adapters.source_sites import export_source_sites
+
+    export_source_sites(trace_dir / "01_原始材料数据_data" / "source_sites_v21.json")
+
     _write_delivery_readme(task_dir, delivery_dir)
 
     top_level_entries = sorted(
@@ -285,6 +294,7 @@ def build_standard_delivery(task_dir: Path) -> dict:
             TRACE_DIR_NAME: trace_dir.exists() and trace_dir.is_dir(),
         },
         "evidence_card_count": evidence_card_count,
+        "knowledge": knowledge_result,
         "top_level_entries": top_level_entries,
         "topic_safe_name": safe_topic(
             json.loads((task_dir / "task.json").read_text(encoding="utf-8")).get("topic", "")
@@ -415,6 +425,11 @@ def verify_package(task_dir: Path) -> dict:
     standard_report_exists = delivery_paths["report"].exists()
     standard_review_exists = delivery_paths["review"].exists()
     standard_trace_exists = delivery_paths["trace"].exists() and delivery_paths["trace"].is_dir()
+    source_sites_path = delivery_paths["trace"] / "01_原始材料数据_data" / "source_sites_v21.json"
+    knowledge_dir = task_dir / "knowledge"
+    metric_facts_path = knowledge_dir / "metric_facts.jsonl"
+    literature_graph_path = knowledge_dir / "literature_graph.json"
+    topic_index_path = knowledge_dir / "topic_index.json"
     review_validation_path = task_dir / "review" / "import_validation_v001.json"
     review_import_ok = False
     if review_validation_path.exists():
@@ -460,6 +475,10 @@ def verify_package(task_dir: Path) -> dict:
         warnings.append(f"尚未生成标准交付审阅表：{DELIVERY_DIR_NAME}/{STANDARD_REVIEW_NAME}。")
     if not standard_trace_exists:
         warnings.append(f"尚未生成系统追溯数据目录：{DELIVERY_DIR_NAME}/{TRACE_DIR_NAME}/。")
+    if not source_sites_path.exists():
+        warnings.append("尚未在追溯数据中固化 V2.1 标准信源配置 source_sites_v21.json。")
+    if not literature_graph_path.exists() or not topic_index_path.exists():
+        warnings.append("尚未生成 V2.1 本地知识索引 literature_graph.json / topic_index.json。")
     if not review_import_ok:
         warnings.append("尚未导入通过校验的人工复核结果，当前报告只能视为自动草稿。")
 
@@ -516,6 +535,7 @@ def verify_package(task_dir: Path) -> dict:
         "evidence_cards": evidence_count,
         "reviewed_evidence_cards": len(reviewed_cards),
         "included_reviewed_evidence_cards": len(included_reviewed_cards),
+        "metric_facts": count_jsonl_rows(metric_facts_path),
     }
 
     manifest = {
@@ -524,6 +544,11 @@ def verify_package(task_dir: Path) -> dict:
         "missing": missing,
         "warnings": warnings,
         "delivery_artifacts_ready": delivery_artifacts_ready,
+        "v21_assets_ready": (
+            source_sites_path.exists()
+            and literature_graph_path.exists()
+            and topic_index_path.exists()
+        ),
         "final_review_ready": final_review_ready,
         "scenario_coverage_ready": scenario_coverage_ready,
         "search_profile_ready": search_profile_ready,
@@ -551,6 +576,7 @@ def verify_package(task_dir: Path) -> dict:
     return {
         "ok": business_ready,
         "delivery_artifacts_ready": delivery_artifacts_ready,
+        "v21_assets_ready": manifest["v21_assets_ready"],
         "final_review_ready": final_review_ready,
         "scenario_coverage_ready": scenario_coverage_ready,
         "search_profile_ready": search_profile_ready,

@@ -1,6 +1,8 @@
-# Nuoyan_skill_V2.0
+# Nuoyan_skill_V2.1
 
-Nuoyan_skill_V2.0 is a Codex skill for IVD product feasibility research. It helps an agent confirm search scope, collect regulatory, competitor, standards, patent and literature evidence, generate evidence cards, build an HTML feasibility report, and export an Excel evidence review table.
+Nuoyan_skill_V2.1 is a Codex skill for IVD product feasibility research. It helps an agent confirm search scope, collect regulatory, competitor, standards, patent, literature and external scientific database evidence, generate enhanced evidence cards, build an HTML research analysis report, export an Excel evidence review table, and preserve local knowledge assets.
+
+The installed local skill name may remain `Nuoyan_skill_V2.0` for backward compatibility. The repository implementation is V2.1.
 
 ## Install
 
@@ -77,6 +79,14 @@ Formal collection should cover the evidence map:
 - Chinese literature
 - PubMed, PMC and OpenAlex literature
 - fallback or manually imported evidence when a source is restricted
+- life-science-research plugin evidence when the topic involves biomarkers, proteins, genes, pathways, clinical studies, genetic evidence or public scientific databases
+
+V2.1 adds a standard source-site baseline and lightweight local knowledge assets:
+
+- `nuoyan source-sites --json` exports built-in source configuration.
+- `nuoyan import-life-science-findings --task-id <task_id> --findings-json-file external_findings.json --json` imports plugin findings into the material pipeline.
+- `nuoyan import-literature-table --task-id <task_id> --path literature.xlsx --json` imports local CSV/XLSX literature lists.
+- `nuoyan build-knowledge --task-id <task_id> --json` generates metric facts, topic index, dedup index and a literature graph.
 
 The final verification command reports whether the package is ready for business review:
 
@@ -84,7 +94,9 @@ The final verification command reports whether the package is ready for business
 nuoyan verify-package --task-id <task_id> --json
 ```
 
-Key fields include `search_profile_ready`, `scenario_coverage_ready`, `fallback_ready`, `network_ready`, `final_review_ready` and `business_ready`.
+Key fields include `search_profile_ready`, `scenario_coverage_ready`, `fallback_ready`, `network_ready`, `v21_assets_ready`, `final_review_ready` and `business_ready`.
+
+`business_ready=true` requires more than generated files. The package must have confirmed search scope, complete source coverage or documented fallback, V2.1 source-site and knowledge assets, reviewed evidence cards, and a valid standard delivery folder.
 
 ## Tests
 
