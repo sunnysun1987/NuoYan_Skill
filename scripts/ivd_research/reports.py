@@ -9,9 +9,11 @@ from .jsonl import append_jsonl, read_json, read_jsonl
 from .quality import OPTIONAL_NOT_STARTED_SCENARIOS, build_collection_alerts
 from .status import now_iso
 from .translation import (
+    TranslationEngine,
     extract_parameters,
     is_mostly_english,
     load_translation_cache,
+    translation_cache_path,
     text_hash,
     translation_status,
 )
@@ -2077,6 +2079,46 @@ def _screening_translation_items(
     capability = translation_capability or {}
     configured = bool(capability.get("configured"))
     command_available = bool(capability.get("command_available", True))
+
+    def cached_or_generate(field: str, label: str, text: str) -> dict[str, str]:
+        digest = text_hash(text)
+        cached = cache.get((material_id, field, digest))
+        if cached and cached.get("translation_zh"):
+            return {
+                "label": label,
+                "status": "completed",
+                "text": str(cached.get("translation_zh") or "").strip(),
+                "note": "基于已缓存的专业中文翻译。",
+            }
+        if task_dir := capability.get("_task_dir"):
+            try:
+                engine = TranslationEngine()
+                if engine.configured:
+                    translation_zh = engine.translate_text(text, context=f"{material.get('title') or card.get('title') or ''} / {label}")
+                    row = {
+                        "time": now_iso(),
+                        "material_id": material_id,
+                        "field": field,
+                        "label": label,
+                        "text_hash": digest,
+                        "source_text": text,
+                        "translation_zh": translation_zh,
+                        "status": "completed",
+                        "engine": engine.active_provider() or engine.provider,
+                        "model": engine.model,
+                    }
+                    append_jsonl(translation_cache_path(Path(str(task_dir))), row)
+                    cache[(material_id, field, digest)] = row
+                    return {
+                        "label": label,
+                        "status": "completed",
+                        "text": translation_zh,
+                        "note": "基于交付生成时写入的专业中文翻译。",
+                    }
+            except Exception:
+                pass
+        return {}
+
     items: list[dict[str, str]] = []
     for index, section in enumerate(sections[:3], start=1):
         label = str(section.get("label") or "Abstract")
@@ -2084,16 +2126,9 @@ def _screening_translation_items(
         if not text or not is_mostly_english(text):
             continue
         field = f"abstract:{index}:{label}"
-        cached = cache.get((material_id, field, text_hash(text)))
-        if cached and cached.get("translation_zh"):
-            items.append(
-                {
-                    "label": label,
-                    "status": "completed",
-                    "text": str(cached.get("translation_zh") or "").strip(),
-                    "note": "基于已缓存的专业中文翻译。",
-                }
-            )
+        generated = cached_or_generate(field, label, text)
+        if generated:
+            items.append(generated)
         else:
             if command_available and not configured:
                 text_zh = "内置翻译命令已存在，但当前翻译引擎未就绪，因此尚未生成专业中文阅读版。"
@@ -2119,7 +2154,10 @@ def _screening_translation_items(
         for excerpt in card.get("excerpt_lines") or []:
             text = " ".join(str(excerpt or "").split())
             if is_mostly_english(text):
-                if command_available and not configured:
+                generated = cached_or_generate("excerpt:1", "Excerpt", text)
+                if generated:
+                    items.append(generated)
+                elif command_available and not configured:
                     text_zh = "内置翻译命令已存在，但当前翻译引擎未就绪，因此尚未生成专业中文阅读版。"
                     note = "当前保留英文原文用于追溯；安装离线模型或接入企业内网翻译服务后可生成中文阅读版。"
                     status = "engine_not_ready"
@@ -2127,16 +2165,29 @@ def _screening_translation_items(
                     text_zh = "该英文摘录尚未生成专业中文阅读缓存。"
                     note = "生成翻译缓存后可在此处显示完整中文译文。"
                     status = "not_generated"
-                items.append(
-                    {
-                        "label": "Excerpt",
-                        "status": status,
-                        "text": text_zh,
-                        "note": note,
-                    }
-                )
+                    items.append(
+                        {
+                            "label": "Excerpt",
+                            "status": status,
+                            "text": text_zh,
+                            "note": note,
+                        }
+                    )
                 break
     return items[:3]
+
+
+def _cached_translation_text(
+    translation_cache: dict[tuple[str, str, str], dict[str, Any]],
+    *,
+    material_id: str,
+    field: str,
+    text: str,
+) -> str:
+    cached = translation_cache.get((material_id, field, text_hash(text)))
+    if cached and cached.get("translation_zh"):
+        return str(cached.get("translation_zh") or "").strip()
+    return ""
 
 
 def _screening_review_points(card: dict, material: dict) -> list[str]:
@@ -2161,6 +2212,8 @@ def build_screening_cards(
     materials_by_id = {item.get("material_id"): item for item in materials}
     translation_cache = load_translation_cache(task_dir) if task_dir else {}
     translation_capability = translation_status(task_dir) if task_dir else {}
+    if task_dir:
+        translation_capability["_task_dir"] = str(task_dir)
     screening_cards: list[dict[str, Any]] = []
     for index, source_card in enumerate(evidence_cards, start=1):
         material = materials_by_id.get(source_card.get("material_id"), {})
@@ -2170,6 +2223,15 @@ def build_screening_cards(
         row["card_id"] = row.get("evidence_card_id") or f"EC-{index:04d}"
         row["screening_id"] = f"SC-{index:04d}"
         row["title"] = clean_display_title(row.get("title") or material.get("title") or "未命名证据")
+        row["title_original"] = row["title"]
+        row["title_zh"] = _cached_translation_text(
+            translation_cache,
+            material_id=str(material.get("material_id") or row.get("material_id") or ""),
+            field="title",
+            text=" ".join(row["title"].split()),
+        )
+        row["display_title"] = row["title_zh"] or row["title"]
+        row["show_original_title"] = bool(row["title_zh"] and row["title_zh"] != row["title"])
         row["year"] = _screening_year(material)
         row["journal"] = material.get("journal") or material.get("source_scenario_zh") or material.get("source_scenario") or "-"
         row["authors"] = _first_raw(material.get("raw_fields") or {}, "authors", "author_string", "registrant", "applicant")
@@ -2208,6 +2270,7 @@ def build_screening_cards(
             str(part or "")
             for part in [
                 row["title"],
+                row.get("title_zh", ""),
                 row.get("summary", ""),
                 text,
                 " ".join(row["labels"]),

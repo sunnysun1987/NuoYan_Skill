@@ -240,10 +240,12 @@ def build_standard_delivery(task_dir: Path) -> dict:
 
     from .reports import build_standard_report
     from .knowledge.literature_graph import build_literature_knowledge
-    from .translation import translation_status
+    from .translation import translate_materials, translation_status
 
     knowledge_result = build_literature_knowledge(task_dir)
+    pre_translation_result = translate_materials(task_dir)
     translation_result = translation_status(task_dir)
+    translation_result["pre_delivery_generation"] = pre_translation_result
 
     report_result = build_standard_report(task_dir, output=paths["report"])
     report_ok = Path(report_result["report_path"]).exists()

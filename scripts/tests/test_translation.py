@@ -61,6 +61,44 @@ def test_translate_sections_uses_cached_complete_translation(tmp_path: Path):
     assert rows[0]["translation_status"] == "completed"
 
 
+def test_title_translation_cache_uses_title_field(tmp_path: Path):
+    title = "Clinical evaluation of a multiplex respiratory viral assay."
+    append_jsonl(
+        tmp_path / "data" / "translations.jsonl",
+        {
+            "material_id": "MAT-000003",
+            "field": "title",
+            "text_hash": text_hash(title),
+            "translation_zh": "多重呼吸道病毒检测方法的临床评价。",
+            "status": "completed",
+            "engine": "test",
+        },
+    )
+
+    from ivd_research.reports import _cached_translation_text
+
+    cache = {
+        (
+            row["material_id"],
+            row["field"],
+            row["text_hash"],
+        ): row
+        for row in [
+            {
+                "material_id": "MAT-000003",
+                "field": "title",
+                "text_hash": text_hash(title),
+                "translation_zh": "多重呼吸道病毒检测方法的临床评价。",
+            }
+        ]
+    }
+
+    assert (
+        _cached_translation_text(cache, material_id="MAT-000003", field="title", text=title)
+        == "多重呼吸道病毒检测方法的临床评价。"
+    )
+
+
 def test_translate_sections_skips_chinese_source_text(tmp_path: Path):
     rows = translate_sections(
         [{"label": "摘要", "text": "这是一段中文摘要，已经可以直接阅读，不需要再生成中文阅读版。"}],
@@ -76,6 +114,8 @@ def test_translation_status_reports_builtin_command_and_missing_engine(tmp_path:
     for key in TRANSLATION_ENV_KEYS:
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("NUOYAN_TRANSLATION_PROVIDER", "argos")
+    monkeypatch.setattr(TranslationEngine, "argos_installed", lambda self: False)
+    monkeypatch.setattr(TranslationEngine, "argos_ready", lambda self: False)
     append_jsonl(
         tmp_path / "data" / "materials.jsonl",
         {

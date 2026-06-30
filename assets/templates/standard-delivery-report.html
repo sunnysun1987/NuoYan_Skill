@@ -25,11 +25,14 @@
       <div class="card-id">{{ card.screening_id }} / {{ card.card_id }}</div>
       <h3>
         {% if card.source_url %}
-        <a href="{{ card.source_url }}" target="_blank" rel="noopener noreferrer">{{ card.title }}</a>
+        <a href="{{ card.source_url }}" target="_blank" rel="noopener noreferrer">{{ card.display_title }}</a>
         {% else %}
-        {{ card.title }}
+        {{ card.display_title }}
         {% endif %}
       </h3>
+      {% if card.show_original_title %}
+      <p class="card-original-title">英文原题：{{ card.title_original }}</p>
+      {% endif %}
       <p class="card-source">{{ card.journal }}{% if card.authors %} · {{ card.authors }}{% endif %}</p>
     </div>
     <div class="card-meta">
@@ -157,17 +160,13 @@
             </ol>
           </section>
           <section class="decision-card">
-            <h2>专业中文阅读能力</h2>
-            <p>{{ translation_capability.message_zh }}</p>
+            <h2>中文阅读覆盖</h2>
+            <p>{% if translation_capability.cached_translation_count > 0 %}英文标题、摘要和关键摘录已生成专业中文阅读版；英文原文仍保留在“关键摘录 / Abstract”中用于追溯。{% else %}当前报告仍有英文材料尚未生成中文阅读版，交付前应由诺研完成中文化处理。{% endif %}</p>
             <div class="field-grid">
-              <div><b>翻译能力</b><span>{% if translation_capability.command_available %}已内置于诺研_skill{% else %}未安装{% endif %}</span></div>
-              <div><b>当前引擎</b><span>{% if translation_capability.active_provider %}{{ translation_capability.active_provider }}{% else %}未就绪{% endif %}</span></div>
-              <div><b>离线模型</b><span>{% if translation_capability.argos_model_ready %}可用{% elif translation_capability.argos_installed %}缺少模型{% else %}未安装{% endif %}</span></div>
-              <div><b>内网服务</b><span>{% if translation_capability.libretranslate_configured %}已配置{% else %}未配置{% endif %}</span></div>
               <div><b>英文段落</b><span>{{ translation_capability.english_section_count }}</span></div>
-              <div><b>已缓存译文</b><span>{{ translation_capability.cached_translation_count }}</span></div>
+              <div><b>中文译文</b><span>{{ translation_capability.cached_translation_count }}</span></div>
             </div>
-            <p class="muted">{{ translation_capability.setup_zh }}</p>
+            <p class="muted">研发人员无需配置翻译工具；中文阅读版由诺研在交付前生成并写入报告。</p>
           </section>
         </div>
 

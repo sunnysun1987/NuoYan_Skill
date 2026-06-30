@@ -999,6 +999,12 @@ a:hover { text-decoration: underline; }
   font-size: 12px;
   margin-top: 5px;
 }
+.card-original-title {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+  margin: 5px 0 0;
+}
 .card-meta {
   display: flex;
   flex-direction: column;

@@ -88,15 +88,13 @@ V2.1 adds a standard source-site baseline and lightweight local knowledge assets
 - `nuoyan import-literature-table --task-id <task_id> --path literature.xlsx --json` imports local CSV/XLSX literature lists.
 - `nuoyan build-knowledge --task-id <task_id> --json` generates metric facts, topic index, dedup index and a literature graph.
 
-Professional Chinese reading support is built into this repository as CLI code. It is designed for R&D teams where individual users may not have an OpenAI account:
+Professional Chinese reading support is built into this repository as a delivery-time capability. R&D users should receive an HTML report that already contains Chinese reading text; they do not need to run translation commands or configure accounts:
 
 - Recommended offline engine: [Argos Translate](https://github.com/argosopentech/argos-translate), an open-source offline translation library. Install `argostranslate` and import an English→Chinese model once on the standard R&D workstation image.
-- Enterprise service option: [LibreTranslate](https://github.com/LibreTranslate/LibreTranslate), a self-hosted translation API built around open-source translation packages. Configure `NUOYAN_LIBRETRANSLATE_URL` for an intranet service.
-- Cloud fallback: an administrator can configure an OpenAI-compatible gateway with `NUOYAN_TRANSLATION_API_KEY`, `NUOYAN_TRANSLATION_BASE_URL` and `NUOYAN_TRANSLATION_MODEL`; individual R&D users do not need personal OpenAI accounts.
 - `nuoyan setup-translation-engine --provider argos --json` installs/checks the optional Argos Python dependency and attempts to install the English→Chinese offline model. Use `--skip-model` when IT wants to install model files separately.
-- `nuoyan translation-status --task-id <task_id> --json` checks whether the built-in command exists, which engine is active, whether Argos/LibreTranslate/OpenAI-compatible routes are ready, and how many cached translations are available.
-- `nuoyan translate-materials --task-id <task_id> --json` generates cached Chinese translations for English abstract sections using the first available engine in `auto` mode: Argos offline → LibreTranslate intranet → OpenAI-compatible gateway.
-- HTML reports read `data/translations.jsonl`; if no cache exists, they show the translation capability status instead of inventing a partial translation.
+- `nuoyan build-standard-delivery --task-id <task_id> --json` attempts `translate-materials` before rendering the HTML report, so English titles, structured abstracts and key excerpts are cached in `data/translations.jsonl`.
+- `nuoyan translation-status --task-id <task_id> --json` is an internal agent/maintainer check, not a user-facing R&D operation.
+- HTML reports prioritize Chinese titles and “专业中文阅读”; original English remains visible for traceability.
 
 The final verification command reports whether the package is ready for business review:
 

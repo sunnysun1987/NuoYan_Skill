@@ -100,6 +100,19 @@ def translation_cache_path(task_dir: Path) -> Path:
     return task_dir / "data" / "translations.jsonl"
 
 
+def subprocess_env_with_certifi() -> dict[str, str]:
+    env = dict(os.environ)
+    try:
+        import certifi
+
+        cert_path = certifi.where()
+        env.setdefault("SSL_CERT_FILE", cert_path)
+        env.setdefault("REQUESTS_CA_BUNDLE", cert_path)
+    except Exception:
+        pass
+    return env
+
+
 def load_translation_cache(task_dir: Path) -> dict[tuple[str, str, str], dict[str, Any]]:
     cache: dict[tuple[str, str, str], dict[str, Any]] = {}
     for row in read_jsonl(translation_cache_path(task_dir)):
@@ -147,6 +160,7 @@ def setup_translation_engine(
             capture_output=True,
             text=True,
             timeout=600,
+            env=subprocess_env_with_certifi(),
         )
         executed.append(
             {
@@ -176,6 +190,7 @@ def setup_translation_engine(
                     capture_output=True,
                     text=True,
                     timeout=timeout,
+                    env=subprocess_env_with_certifi(),
                 )
                 executed.append(
                     {
@@ -531,6 +546,49 @@ def translate_materials(
         material_id = str(material.get("material_id") or "")
         title = str(material.get("title") or "")
         raw = material.get("raw_fields") or {}
+        title_text = " ".join(title.split())
+        if title_text and is_mostly_english(title_text):
+            digest = text_hash(title_text)
+            field = "title"
+            if not force and (material_id, field, digest) in existing:
+                skipped_count += 1
+            elif not limit or translated_count < limit:
+                try:
+                    translation_zh = engine.translate_text(title_text, context=f"{title_text} / Title")
+                    append_jsonl(
+                        translation_cache_path(task_dir),
+                        {
+                            "time": now_iso(),
+                            "material_id": material_id,
+                            "field": field,
+                            "label": "Title",
+                            "text_hash": digest,
+                            "source_text": title_text,
+                            "translation_zh": translation_zh,
+                            "status": "completed",
+                            "engine": engine.active_provider() or engine.provider,
+                            "model": engine.model,
+                        },
+                    )
+                    translated_count += 1
+                except Exception as exc:
+                    failed_count += 1
+                    errors.append(
+                        {
+                            "material_id": material_id,
+                            "field": field,
+                            "error": f"{type(exc).__name__}: {exc}",
+                        }
+                    )
+            elif limit and translated_count >= limit:
+                return {
+                    "status": "partial",
+                    "translated_count": translated_count,
+                    "skipped_count": skipped_count,
+                    "failed_count": failed_count,
+                    "errors": errors,
+                    "message_zh": f"已按 limit={limit} 生成部分完整中文翻译。",
+                }
         for index, section in enumerate(_structured_abstract_items(raw), start=1):
             label = str(section.get("label") or "Abstract")
             text = " ".join(str(section.get("text") or "").split())
