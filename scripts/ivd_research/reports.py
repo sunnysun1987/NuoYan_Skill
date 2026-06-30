@@ -678,6 +678,13 @@ def clean_display_title(title: str) -> str:
     return str(title or "").split(" 专利标题（英）：", 1)[0].strip()
 
 
+def _short_text(text: str, limit: int = 260) -> str:
+    value = " ".join(str(text or "").split())
+    if len(value) <= limit:
+        return value
+    return value[: limit - 1].rstrip() + "…"
+
+
 def _raw(material: dict, key: str) -> str:
     value = (material.get("raw_fields") or {}).get(key, "")
     return "；".join(str(item) for item in value) if isinstance(value, list) else str(value or "")
@@ -989,6 +996,274 @@ def build_business_decision(
         "recommendation": (
             "建议进入立项复核阶段：注册人员核验国内同类注册证字段，研发人员输出化学发光免疫法性能验证方案，医学人员确认适用人群与临床解释边界，专利人员完成 FTO 初筛。四项完成后再形成正式立项结论。"
         ),
+    }
+
+
+METRIC_TYPE_LABELS = {
+    "sensitivity": "检出灵敏度",
+    "specificity": "检出特异性",
+    "AUC": "曲线下面积 AUC",
+    "cutoff": "判定阈值 / cut-off",
+    "sample_size": "样本量",
+    "HR": "风险比 HR",
+    "OR": "比值比 OR",
+    "CI": "置信区间 CI",
+}
+
+METRIC_TYPE_EXPLANATIONS = {
+    "sensitivity": "阳性样本被正确检出的比例，通常用于评估漏检风险。",
+    "specificity": "阴性样本被正确判为阴性的比例，通常用于评估误报风险。",
+    "AUC": "区分阳性与阴性/目标状态的综合能力，越接近 1 通常越好。",
+    "cutoff": "将结果判为阳性、阴性或风险分层的阈值，需要结合平台和样本类型复核。",
+    "sample_size": "用于该研究、评价或分析的人数/样本数，影响结论稳定性。",
+    "HR": "暴露组或阳性组发生结局的相对风险，需要结合置信区间解读。",
+    "OR": "结局发生优势的相对比值，需要结合研究设计和置信区间解读。",
+    "CI": "统计估计的不确定性范围，区间越宽通常代表不确定性越大。",
+}
+
+
+def metric_type_label(metric_type: str) -> str:
+    key = str(metric_type or "").strip()
+    return METRIC_TYPE_LABELS.get(key, key or "待复核指标")
+
+
+def metric_type_explanation(metric_type: str) -> str:
+    key = str(metric_type or "").strip()
+    return METRIC_TYPE_EXPLANATIONS.get(key, "从原文中抽取的参数事实，需结合原文语境人工复核。")
+
+
+def material_display_title(material: dict | None, fallback: str = "") -> str:
+    if not material:
+        return fallback or "-"
+    return clean_display_title(material.get("title") or fallback or material.get("material_id") or "-")
+
+
+def material_href(material: dict | None) -> str:
+    if not material:
+        return ""
+    return str(material.get("display_url") or material.get("source_url") or "")
+
+
+def evidence_card_anchor(card_id: str) -> str:
+    value = re.sub(r"[^A-Za-z0-9_-]+", "-", str(card_id or "").strip())
+    return f"evidence-card-{value}" if value else ""
+
+
+def build_metric_fact_rows(
+    metric_facts: list[dict],
+    *,
+    materials_by_id: dict[str, dict],
+    screening_cards: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    card_by_id = {str(card.get("card_id") or ""): card for card in screening_cards}
+    rows: list[dict[str, Any]] = []
+    for fact in metric_facts:
+        material_id = str(fact.get("material_id") or "")
+        card_id = str(fact.get("evidence_card_id") or "")
+        material = materials_by_id.get(material_id, {})
+        metric_type = str(fact.get("metric_type") or "")
+        card = card_by_id.get(card_id, {})
+        search_text = " ".join(
+            str(part or "")
+            for part in [
+                metric_type_label(metric_type),
+                metric_type,
+                fact.get("value", ""),
+                material_display_title(material, material_id),
+                card_id,
+                fact.get("sample_type", ""),
+                fact.get("platform", ""),
+                fact.get("reference_standard", ""),
+                fact.get("excerpt", ""),
+            ]
+        )
+        rows.append(
+            {
+                "metric_fact_id": fact.get("metric_fact_id", ""),
+                "metric_type": metric_type,
+                "metric_type_zh": metric_type_label(metric_type),
+                "metric_explanation": metric_type_explanation(metric_type),
+                "value": fact.get("value", ""),
+                "value_label": "参数值 / 结果值",
+                "value_explanation": "原文报告的具体数值或区间，必须结合指标名称、样本类型和原文语境解读。",
+                "material_id": material_id,
+                "material_title": material_display_title(material, material_id),
+                "material_href": material_href(material),
+                "evidence_card_id": card_id,
+                "evidence_card_anchor": evidence_card_anchor(card_id),
+                "evidence_card_title": card.get("display_title") or card.get("title") or card_id,
+                "sample_type": fact.get("sample_type") or "-",
+                "platform": fact.get("platform") or "-",
+                "reference_standard": fact.get("reference_standard") or "-",
+                "excerpt": _short_text(fact.get("excerpt", ""), 360),
+                "search_text": search_text.lower(),
+            }
+        )
+    return rows
+
+
+SECTION_EVIDENCE_TERMS: dict[str, list[str]] = {
+    "临床意义": ["clinical", "symptom", "impact", "burden", "诊断", "感染", "流感", "clinical"],
+    "临床应用定位": ["diagnosis", "diagnostic", "differential", "screening", "triage", "鉴别", "分流"],
+    "目标使用场景": ["hospital", "outpatient", "emergency", "icu", "point-of-care", "门诊", "急诊", "住院"],
+    "目标人群": ["children", "pediatric", "adult", "elderly", "patient", "儿童", "成人", "患者"],
+    "诊疗路径": ["workflow", "turnaround", "treatment", "clinical", "路径", "用药", "隔离"],
+    "金标准与参照方法": ["reference", "comparator", "rt-pcr", "pcr", "sequencing", "参照", "比对"],
+    "指南与共识": ["guideline", "consensus", "standard", "who", "cdc", "指南", "共识", "标准"],
+    "专家和组织意见": ["society", "expert", "organization", "consensus", "专家", "组织", "协会"],
+    "市场准入与收费": ["cost", "price", "reimbursement", "market", "收费", "医保", "价格"],
+    "市场定位": ["market", "position", "panel", "multiplex", "定位", "组合"],
+    "竞争格局": ["competitor", "registration", "manufacturer", "product", "注册", "竞品", "产品"],
+    "出口与注册": ["regulatory", "registration", "fda", "ivdr", "nmpa", "注册", "申报"],
+    "技术可行性": ["sensitivity", "specificity", "lod", "auc", "pcr", "assay", "灵敏度", "特异性", "最低检出限"],
+    "参考物质": ["control", "calibrator", "reference material", "标准品", "质控", "参考物质"],
+    "安全要求": ["safety", "false positive", "false negative", "risk", "安全", "假阳性", "假阴性"],
+    "原材料可获得性": ["primer", "probe", "enzyme", "reagent", "antibody", "引物", "探针", "原料"],
+    "其他发现 / 待归类线索": [],
+}
+
+
+def _evidence_text(material: dict, card: dict | None = None) -> str:
+    raw = material.get("raw_fields") or {}
+    parts = [
+        material.get("title", ""),
+        material.get("structured_summary", ""),
+        raw.get("abstract", ""),
+        raw.get("summary", ""),
+        raw.get("keywords", ""),
+        raw.get("full_visible_text", ""),
+    ]
+    if card:
+        parts.extend([card.get("title", ""), card.get("summary", ""), card.get("exact_data", "")])
+        parts.extend(card.get("key_facts") or [])
+    return " ".join(str(part or "") for part in parts)
+
+
+def _match_score(text: str, terms: list[str]) -> int:
+    lowered = text.lower()
+    return sum(1 for term in terms if term.lower() in lowered)
+
+
+def build_section_evidence_rows(
+    section_title: str,
+    *,
+    materials: list[dict],
+    screening_cards: list[dict[str, Any]],
+    limit: int = 6,
+) -> list[dict[str, str]]:
+    terms = SECTION_EVIDENCE_TERMS.get(section_title, [])
+    materials_by_id = {item.get("material_id"): item for item in materials}
+    rows: list[dict[str, str]] = []
+    for card in screening_cards:
+        material = materials_by_id.get(card.get("material_id"), {})
+        if not material:
+            continue
+        text = _evidence_text(material, card)
+        score = _match_score(text, terms) if terms else 1
+        if score <= 0:
+            continue
+        excerpt = (
+            card.get("summary")
+            or material.get("structured_summary")
+            or _first_raw(material.get("raw_fields") or {}, "abstract", "summary", "full_visible_text")
+        )
+        rows.append(
+            {
+                "score": score,
+                "material_title": material_display_title(material, card.get("title", "")),
+                "material_href": material_href(material),
+                "excerpt": _short_text(excerpt, 260),
+                "evidence_card_id": card.get("card_id", ""),
+                "evidence_card_title": card.get("display_title") or card.get("title") or card.get("card_id", ""),
+                "evidence_card_anchor": evidence_card_anchor(card.get("card_id", "")),
+                "priority_label": card.get("priority_label", ""),
+            }
+        )
+    rows.sort(key=lambda row: (-int(row.get("score") or 0), row.get("material_title", "")))
+    if rows:
+        return rows[:limit]
+    fallback = []
+    for card in screening_cards[:limit]:
+        material = materials_by_id.get(card.get("material_id"), {})
+        if not material:
+            continue
+        fallback.append(
+            {
+                "score": 0,
+                "material_title": material_display_title(material, card.get("title", "")),
+                "material_href": material_href(material),
+                "excerpt": _short_text(card.get("summary") or material.get("structured_summary") or "", 260),
+                "evidence_card_id": card.get("card_id", ""),
+                "evidence_card_title": card.get("display_title") or card.get("title") or card.get("card_id", ""),
+                "evidence_card_anchor": evidence_card_anchor(card.get("card_id", "")),
+                "priority_label": card.get("priority_label", ""),
+            }
+        )
+    return fallback
+
+
+def attach_analysis_evidence_rows(
+    sections: list[dict[str, Any]],
+    *,
+    materials: list[dict],
+    screening_cards: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    enriched = []
+    for section in sections:
+        row = dict(section)
+        row["evidence_rows"] = build_section_evidence_rows(
+            str(row.get("title") or ""),
+            materials=materials,
+            screening_cards=screening_cards,
+        )
+        enriched.append(row)
+    return enriched
+
+
+def build_expert_decision(
+    business_decision: dict[str, Any],
+    *,
+    materials: list[dict],
+    screening_summary: dict[str, Any],
+    knowledge_status: dict[str, Any],
+    failed_scenarios: list[dict],
+    collection_gap_summary: dict[str, Any],
+) -> dict[str, Any]:
+    is_respiratory = _is_respiratory_project(materials)
+    core_count = screening_summary.get("core", 0)
+    metric_count = knowledge_status.get("metric_fact_count", 0)
+    gap_count = collection_gap_summary.get("gap_count", 0)
+    if is_respiratory:
+        judgement = (
+            "建议进入立项复核，而不是直接立项。当前证据已能说明甲/乙型流感及呼吸道病原体多重检测具有明确临床使用场景，"
+            "但注册参照、性能验证边界、竞品字段和专利风险仍需逐项关闭。"
+        )
+        positioning = "优先按“呼吸道感染病原体鉴别诊断 / 发热门急诊快速分流 / 检验科多重核酸检测菜单”定位，不宜宣称覆盖所有呼吸道感染或替代临床综合诊断。"
+        validation = "研发验证应优先锁定样本类型、参照试剂、LoD、包容性、交叉反应、干扰、阳性符合率、阴性符合率和多靶标兼容性。"
+    else:
+        judgement = business_decision.get("conclusion", "")
+        positioning = "优先按辅助诊断、风险分层或转诊分层定位，避免把单一标志物表述为独立确诊工具。"
+        validation = "研发验证应优先锁定样本类型、参照方法、cut-off、AUC、灵敏度、特异性、精密度、干扰和平台一致性。"
+    confidence = "中"
+    if gap_count or failed_scenarios:
+        confidence = "中低"
+    if core_count >= 100 and metric_count >= 1000 and not gap_count:
+        confidence = "中高"
+    return {
+        "judgement": judgement,
+        "confidence": confidence,
+        "positioning": positioning,
+        "validation_focus": validation,
+        "evidence_readout": (
+            f"当前形成 {len(materials)} 条材料、{screening_summary.get('total', 0)} 张证据卡、"
+            f"{core_count} 张核心必读证据卡和 {metric_count} 条指标事实；仍有 {gap_count} 项资料缺口。"
+        ),
+        "go_no_go": (
+            "Go with conditions：允许继续立项复核和方案设计，但正式立项会前必须关闭注册/竞品/标准/专利和关键性能证据缺口。"
+            if core_count or metric_count
+            else "No-go for decision：当前证据不足以支持立项判断，应先补齐核心材料和证据卡。"
+        ),
+        "next_gate": "下一关口：完成 NMPA 同类产品字段核验、性能验证方案、核心文献人工复核和 FTO 初筛后，再输出正式立项建议。",
     }
 
 
@@ -2297,6 +2572,7 @@ def build_screening_cards(
         priority_class, priority_label = _screening_priority(row, material)
         row["card_id"] = row.get("evidence_card_id") or f"EC-{index:04d}"
         row["screening_id"] = f"SC-{index:04d}"
+        row["evidence_anchor"] = evidence_card_anchor(row["card_id"])
         row["title"] = clean_display_title(row.get("title") or material.get("title") or "未命名证据")
         row["title_original"] = row["title"]
         row["title_zh"] = _cached_translation_text(
@@ -2745,15 +3021,6 @@ def build_standard_report(task_dir: Path, output: Path | None = None) -> dict:
         patent_materials=patent_materials,
         scenario_map=scenario_map,
     )
-    project_analysis_sections = build_project_analysis_sections(
-        literature_materials=literature_materials,
-        regulatory_materials=regulatory_materials,
-        competitor_materials=competitor_materials,
-        standard_materials=standard_materials,
-        patent_materials=patent_materials,
-        materials=materials,
-        confirmations=task.get("confirmations") or {},
-    )
     registration_materials = (
         regulatory_materials + competitor_materials + standard_materials + patent_materials
     )
@@ -2765,6 +3032,33 @@ def build_standard_report(task_dir: Path, output: Path | None = None) -> dict:
     filter_groups = build_filter_groups(screening_cards)
     core_filter_groups = build_filter_groups(core_cards, include_priority=False)
     screening_summary = build_screening_summary(screening_cards)
+    project_analysis_sections = build_project_analysis_sections(
+        literature_materials=literature_materials,
+        regulatory_materials=regulatory_materials,
+        competitor_materials=competitor_materials,
+        standard_materials=standard_materials,
+        patent_materials=patent_materials,
+        materials=materials,
+        confirmations=task.get("confirmations") or {},
+    )
+    project_analysis_sections = attach_analysis_evidence_rows(
+        project_analysis_sections,
+        materials=materials,
+        screening_cards=screening_cards,
+    )
+    metric_fact_rows = build_metric_fact_rows(
+        metric_facts,
+        materials_by_id=materials_by_id,
+        screening_cards=screening_cards,
+    )
+    expert_decision = build_expert_decision(
+        business_decision,
+        materials=materials,
+        screening_summary=screening_summary,
+        knowledge_status=knowledge_status,
+        failed_scenarios=failed_scenarios,
+        collection_gap_summary=collection_gap_summary,
+    )
 
     template_path = asset_root() / "templates" / "standard-delivery-report.html"
     report_output = output or task_dir / "reports" / "standard-delivery-report.html"
@@ -2791,7 +3085,9 @@ def build_standard_report(task_dir: Path, output: Path | None = None) -> dict:
         evidence_map=evidence_map,
         knowledge_status=knowledge_status,
         translation_capability=translation_capability,
-        metric_facts=metric_facts[:100],
+        metric_facts=metric_fact_rows,
+        metric_fact_total=len(metric_fact_rows),
+        expert_decision=expert_decision,
         source_runs=source_runs,
         failed_scenarios=failed_scenarios,
         search_profile=build_search_profile(task),

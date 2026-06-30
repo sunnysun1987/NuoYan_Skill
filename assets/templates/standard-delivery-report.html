@@ -6,8 +6,8 @@
   <title>{{ report_title }}</title>
   <style>{{ css }}</style>
 </head>
-{% macro render_screening_card(card) -%}
-<article class="card filter-card"
+{% macro render_screening_card(card, anchor_prefix="") -%}
+<article id="{{ anchor_prefix }}{{ card.evidence_anchor }}" class="card filter-card"
   data-priority="{{ card.data_priority }}"
   data-stage="{{ card.data_stage }}"
   data-sample="{{ card.data_sample }}"
@@ -132,7 +132,6 @@
               <a class="analysis-nav-card" href="#{{ section.id }}" aria-label="查看{{ section.title }}">
                 <span class="nav-index">{{ "%02d"|format(loop.index) }}</span>
                 <span class="nav-title">{{ section.title }}</span>
-                <span class="nav-action">查看</span>
               </a>
             {% endfor %}
             </div>
@@ -148,6 +147,28 @@
               <div class="analysis-block">
                 <h3>当前依据</h3>
                 <p>{{ section.evidence }}</p>
+                {% if section.evidence_rows %}
+                <div class="analysis-evidence-table-wrap">
+                  <table class="analysis-evidence-table">
+                    <thead><tr><th>原文标题</th><th>相关内容原文</th><th>证据卡</th></tr></thead>
+                    <tbody>
+                      {% for row in section.evidence_rows %}
+                      <tr>
+                        <td>
+                          {% if row.material_href %}
+                          <a href="{{ row.material_href }}" target="_blank" rel="noopener noreferrer">{{ row.material_title }}</a>
+                          {% else %}
+                          {{ row.material_title }}
+                          {% endif %}
+                        </td>
+                        <td>{{ row.excerpt }}</td>
+                        <td><button class="inline-jump" type="button" data-jump-tab="tab-screening" data-jump-target="{{ row.evidence_card_anchor }}">{{ row.evidence_card_id }}</button></td>
+                      </tr>
+                      {% endfor %}
+                    </tbody>
+                  </table>
+                </div>
+                {% endif %}
               </div>
               <div class="analysis-block gap">
                 <h3>待补判断依据</h3>
@@ -189,10 +210,19 @@
         </div>
 
         <div class="reading-grid">
-          <section class="decision-card">
+          <section class="decision-card expert-decision-card">
             <h2>先看结论</h2>
-            <p>{{ business_decision.conclusion }}</p>
-            <div class="insight">{{ business_decision.recommendation }}</div>
+            <div class="decision-verdict">
+              <span class="status-pill info">{{ expert_decision.confidence }}可信度</span>
+              <strong>{{ expert_decision.go_no_go }}</strong>
+            </div>
+            <p>{{ expert_decision.judgement }}</p>
+            <dl class="decision-list">
+              <div><dt>研发定位</dt><dd>{{ expert_decision.positioning }}</dd></div>
+              <div><dt>验证重点</dt><dd>{{ expert_decision.validation_focus }}</dd></div>
+              <div><dt>证据读数</dt><dd>{{ expert_decision.evidence_readout }}</dd></div>
+              <div><dt>下一关口</dt><dd>{{ expert_decision.next_gate }}</dd></div>
+            </dl>
           </section>
           <section class="decision-card">
             <h2>怎么读这份报告</h2>
@@ -201,15 +231,6 @@
               <li>再看“核心必读文献”，优先复核 A 类证据，不要从全部材料里盲找。</li>
               <li>最后用“全部证据卡”按样本、方法学、参照、性能指标和证据类型筛选。</li>
             </ol>
-          </section>
-          <section class="decision-card">
-            <h2>中文阅读覆盖</h2>
-            <p>{% if translation_capability.cached_translation_count > 0 %}英文标题、摘要和关键摘录已生成专业中文阅读版；英文原文仍保留在“关键摘录 / Abstract”中用于追溯。{% else %}当前报告仍有英文材料尚未生成中文阅读版，交付前应由诺研完成中文化处理。{% endif %}</p>
-            <div class="field-grid">
-              <div><b>英文段落</b><span>{{ translation_capability.english_section_count }}</span></div>
-              <div><b>中文译文</b><span>{{ translation_capability.cached_translation_count }}</span></div>
-            </div>
-            <p class="muted">研发人员无需配置翻译工具；中文阅读版由诺研在交付前生成并写入报告。</p>
           </section>
         </div>
 
@@ -232,17 +253,50 @@
 
         <section class="section-card flat" id="metric-facts">
           <h2>指标事实</h2>
-          <p class="section-note">以下为系统从材料和证据卡中抽取的参数事实，用于快速定位性能、样本量和统计结果。正式引用前仍需回到原文或证据卡复核。</p>
+          <p class="section-note">以下为系统从材料和证据卡中抽取的参数事实，用于快速定位性能、样本量和统计结果。当前展示 {{ metric_facts|length }} / {{ metric_fact_total }} 条；正式引用前仍需回到原文或证据卡复核。</p>
+          <div class="metric-filter-panel">
+            <label class="metric-search-box">
+              <span>组合查询</span>
+              <input id="metric-global-search" type="search" placeholder="输入指标、数值、材料标题、证据卡、样本、平台或原文关键词">
+            </label>
+            <div class="metric-filter-grid">
+              <label><span>指标字段</span><input type="search" data-metric-filter="metric" placeholder="如 检出灵敏度"></label>
+              <label><span>数值字段</span><input type="search" data-metric-filter="value" placeholder="如 99% / 0.92"></label>
+              <label><span>材料标题</span><input type="search" data-metric-filter="material" placeholder="输入原文标题关键词"></label>
+              <label><span>证据卡</span><input type="search" data-metric-filter="card" placeholder="如 EC-000008"></label>
+              <label><span>样本类型</span><input type="search" data-metric-filter="sample" placeholder="如 鼻咽拭子"></label>
+              <label><span>平台/方法</span><input type="search" data-metric-filter="platform" placeholder="如 RT-PCR"></label>
+            </div>
+            <div class="metric-filter-status"><span id="metric-visible-count">{{ metric_facts|length }}</span> / {{ metric_facts|length }} 条匹配</div>
+          </div>
           {% if metric_facts %}
           <table class="metric-fact-table">
-            <thead><tr><th>指标</th><th>数值</th><th>材料</th><th>证据卡</th><th>原文摘录</th></tr></thead>
+            <thead><tr><th>指标字段</th><th>数值字段</th><th>材料</th><th>证据卡</th><th>样本/平台/参照</th><th>相关内容原文</th></tr></thead>
             <tbody>
               {% for fact in metric_facts %}
-              <tr>
-                <td>{{ fact.metric_type }}</td>
-                <td>{{ fact.value }}</td>
-                <td>{{ fact.material_id }}</td>
-                <td>{{ fact.evidence_card_id }}</td>
+              <tr class="metric-fact-row"
+                data-metric="{{ fact.metric_type_zh }} {{ fact.metric_type }}"
+                data-value="{{ fact.value }}"
+                data-material="{{ fact.material_title }} {{ fact.material_id }}"
+                data-card="{{ fact.evidence_card_id }} {{ fact.evidence_card_title }}"
+                data-sample="{{ fact.sample_type }}"
+                data-platform="{{ fact.platform }} {{ fact.reference_standard }}"
+                data-search="{{ fact.search_text }}">
+                <td><strong>{{ fact.metric_type_zh }}</strong><span>{{ fact.metric_explanation }}</span></td>
+                <td><strong>{{ fact.value }}</strong><span>{{ fact.value_explanation }}</span></td>
+                <td>
+                  {% if fact.material_href %}
+                  <a href="{{ fact.material_href }}" target="_blank" rel="noopener noreferrer">{{ fact.material_title }}</a>
+                  {% else %}
+                  {{ fact.material_title }}
+                  {% endif %}
+                </td>
+                <td><button class="inline-jump" type="button" data-jump-tab="tab-screening" data-jump-target="{{ fact.evidence_card_anchor }}">{{ fact.evidence_card_id }}</button></td>
+                <td>
+                  <div>样本：{{ fact.sample_type }}</div>
+                  <div>平台：{{ fact.platform }}</div>
+                  <div>参照：{{ fact.reference_standard }}</div>
+                </td>
                 <td>{{ fact.excerpt }}</td>
               </tr>
               {% endfor %}
@@ -309,7 +363,7 @@
             </div>
             <div id="core-card-list" class="card-list">
               {% for card in core_cards %}
-              {{ render_screening_card(card) }}
+              {{ render_screening_card(card, "core-") }}
               {% endfor %}
               {% if not core_cards %}
               <div class="empty-state danger">当前没有可进入核心必读的证据卡。</div>
@@ -413,9 +467,39 @@
       activateTab(targetTab);
       window.setTimeout(() => {
         const target = targetId ? document.getElementById(targetId) : document.getElementById(targetTab);
-        if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
+        if (target) {
+          target.scrollIntoView({ behavior: "smooth", block: "start" });
+          target.classList.add("jump-highlight");
+          window.setTimeout(() => target.classList.remove("jump-highlight"), 1600);
+        }
       }, 30);
     });
+  });
+
+  function applyMetricFilters() {
+    const globalQuery = normalizeText(document.getElementById("metric-global-search")?.value || "");
+    const fieldQueries = {};
+    document.querySelectorAll("[data-metric-filter]").forEach((input) => {
+      fieldQueries[input.getAttribute("data-metric-filter")] = normalizeText(input.value || "");
+    });
+    const rows = Array.from(document.querySelectorAll(".metric-fact-row"));
+    let visible = 0;
+    rows.forEach((row) => {
+      const globalText = normalizeText(row.getAttribute("data-search") || row.innerText);
+      const globalMatch = !globalQuery || globalText.includes(globalQuery);
+      const fieldMatch = Object.entries(fieldQueries).every(([key, query]) => {
+        if (!query) return true;
+        return normalizeText(row.getAttribute(`data-${key}`) || "").includes(query);
+      });
+      row.hidden = !(globalMatch && fieldMatch);
+      if (!row.hidden) visible += 1;
+    });
+    const count = document.getElementById("metric-visible-count");
+    if (count) count.textContent = visible;
+  }
+
+  document.querySelectorAll("#metric-global-search, [data-metric-filter]").forEach((input) => {
+    input.addEventListener("input", applyMetricFilters);
   });
 
   function normalizeText(value) {

@@ -1,4 +1,5 @@
 from ivd_research.reports import (
+    build_metric_fact_rows,
     build_project_analysis_sections,
     normalize_evidence_cards,
     normalize_materials,
@@ -116,3 +117,34 @@ def test_project_analysis_uses_literature_signals_and_current_marker():
     assert "p-Tau181" not in joined
     assert "结构化 Abstract" in joined or "含结构化 Abstract" in joined
     assert "amyloid PET" in joined
+
+
+def test_metric_fact_rows_use_chinese_labels_and_links():
+    material = normalize_materials([_literature_material()], [])[0]
+    rows = build_metric_fact_rows(
+        [
+            {
+                "metric_fact_id": "MF-000001",
+                "metric_type": "sensitivity",
+                "value": "91%",
+                "material_id": "MAT-000001",
+                "evidence_card_id": "EC-000001",
+                "excerpt": "The assay showed sensitivity 91%.",
+            }
+        ],
+        materials_by_id={"MAT-000001": material},
+        screening_cards=[
+            {
+                "card_id": "EC-000001",
+                "title": "Evidence card title",
+                "display_title": "证据卡标题",
+            }
+        ],
+    )
+
+    row = rows[0]
+    assert row["metric_type_zh"] == "检出灵敏度"
+    assert "漏检风险" in row["metric_explanation"]
+    assert row["material_title"].startswith("Diagnostic Accuracy")
+    assert row["material_href"] == "https://pubmed.ncbi.nlm.nih.gov/38252443/"
+    assert row["evidence_card_anchor"] == "evidence-card-EC-000001"

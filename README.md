@@ -97,6 +97,9 @@ Professional Chinese reading support is built into this repository as a delivery
 - HTML reports prioritize Chinese titles and “专业中文阅读”; original English remains visible for traceability.
 - Evidence excerpts are rendered as reading blocks. Source, query, title, authors, journal/source and Abstract text are separated, and Chinese reading text is split into short paragraphs for review.
 - The standard HTML report uses product-style reading navigation. Project analysis keeps a persistent left-side chapter directory with clear click targets, and reading-entry metric cards include a business definition plus a click-through target for evidence maps, evidence cards, core papers, gaps and metric facts.
+- Metric facts are rendered as a searchable evidence table. Users can combine global search with field-specific filters for metric type, value, material title, evidence card, sample type and platform/method. Materials link to source titles, and evidence-card links switch to the full evidence-card tab and anchor the matching card.
+- Project-analysis chapters include an evidence-basis table with source-title links, original supporting excerpts and evidence-card anchors, so expert reviewers can trace each analysis section back to materials.
+- The “first read” decision block is written as an R&D expert gate review: decision confidence, product positioning, validation focus, evidence readout and next gate are shown instead of a shallow one-line conclusion.
 
 The final verification command reports whether the package is ready for business review:
 

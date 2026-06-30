@@ -117,6 +117,15 @@ def test_standard_delivery_report_has_drilldown_navigation_and_metric_definition
     assert "已写入材料库的原始资料总数" in html
     assert "从证据中结构化抽取的样本量" in html
     assert "口径：" not in html
+    assert "中文阅读覆盖" not in html
+    assert "metric-global-search" in html
+    assert 'data-metric-filter="metric"' in html
+    assert "指标字段" in html
+    assert "数值字段" in html
+    assert "analysis-evidence-table" in html
+    assert "相关内容原文" in html
+    assert "先看结论" in html
+    assert "研发定位" in html
 
 
 def test_verify_package_requires_fallback_for_failed_formal_scenarios(tmp_path: Path):
