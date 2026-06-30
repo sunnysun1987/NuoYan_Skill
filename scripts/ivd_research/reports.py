@@ -683,6 +683,79 @@ def build_business_decision(
     scenario_map: dict[str, dict],
 ) -> dict[str, Any]:
     """Build business-facing decision text, not development diagnostics."""
+    if _is_respiratory_project(materials):
+        literature_count = len(literature_materials)
+        missing_domains = []
+        if not regulatory_materials:
+            missing_domains.append("法规/指导原则")
+        if not competitor_materials:
+            missing_domains.append("NMPA 竞品注册")
+        if not standard_materials:
+            missing_domains.append("现行标准")
+        if not patent_materials:
+            missing_domains.append("专利")
+        signals = build_respiratory_signal_summary(literature_materials)
+        topics = signals.get("topics", {})
+        if literature_count and missing_domains:
+            conclusion = (
+                "当前已形成甲乙流/呼吸道病原体多重联检的文献证据基础，可支持继续推进立项调研，"
+                "但尚不能形成完整立项建议。主要原因是注册路径、同类产品、标准和专利风险证据仍需补齐或人工复核。"
+            )
+        elif literature_count:
+            conclusion = (
+                "当前证据支持甲型/乙型流感多重联检方向进入立项复核。建议按“呼吸道感染病原体鉴别诊断/快速分流”定位推进，"
+                "先完成注册证字段、参照方法、性能方案和专利全文复核后再进入正式立项会。"
+            )
+        else:
+            conclusion = "当前尚未形成可用于立项判断的呼吸道病原体联检证据基础，应先完成核心来源采集。"
+        basis = [
+            (
+                f"已采集文献材料 {literature_count} 条，其中甲型流感相关 {topics.get('influenza_a', 0)} 条、"
+                f"乙型流感相关 {topics.get('influenza_b', 0)} 条、多重/联检相关 {topics.get('multiplex', 0)} 条、"
+                f"RT-PCR/核酸检测相关 {topics.get('pcr', 0)} 条、性能评价相关 {topics.get('performance', 0)} 条。"
+            ),
+            "该方向的研发判断应围绕检测组合、样本类型、参照方法、阳性/阴性符合率、LoD、交叉反应、干扰和临床使用场景展开。",
+        ]
+        if competitor_materials:
+            basis.append(
+                f"已导入 {len(competitor_materials)} 条竞品/同类注册线索，可用于识别已上市产品的靶标组合、方法学、样本类型和预期用途。"
+            )
+        if regulatory_materials:
+            basis.append(f"已导入 {len(regulatory_materials)} 条法规/注册路径材料，可用于确认 IVD 注册管理、分类规则和临床评价边界。")
+        if standard_materials:
+            basis.append(f"已导入 {len(standard_materials)} 条标准/性能控制材料，可用于设计 LoD、精密度、交叉反应、干扰和样本稳定性验证。")
+        if patent_materials:
+            basis.append(f"已形成 {len(patent_materials)} 条专利检索策略和风险提示，后续需由专利人员完成全文和权利要求复核。")
+        if missing_domains:
+            basis.append("尚缺：" + "、".join(missing_domains) + "。这些缺口会影响注册可行性、竞品定位、性能验证边界和知识产权风险判断。")
+        cannot_conclude = []
+        if not competitor_materials:
+            cannot_conclude.append("不能判断国内是否已有同类甲乙流/呼吸道病原体多重联检注册产品、主流方法学、样本类型和预期用途表述。")
+        if not regulatory_materials:
+            cannot_conclude.append("不能判断该方向的注册路径、临床评价和性能评价要求。")
+        if not standard_materials:
+            cannot_conclude.append("不能判断适用标准、性能验证项目和实验室安全/质量体系约束。")
+        if not patent_materials:
+            cannot_conclude.append("不能判断引物/探针、检测组合、反应体系和自由实施空间的专利风险。")
+        if not cannot_conclude:
+            cannot_conclude.extend(
+                [
+                    "不能直接认定 NMPA 官方数据库字段已经完整核验；注册证编号、注册人、有效期、适用样本和说明书仍需人工复核。",
+                    "不能直接形成自由实施结论；引物/探针、靶标组合、反应体系、内参设计和平台绑定专利需要专利全文审阅。",
+                    "不能直接确定最终性能指标；LoD、包容性、交叉反应、干扰、阳性符合率和阴性符合率需要研发与注册共同确认。",
+                    "自动证据卡仍未人工复核，不能直接作为最终立项会结论。",
+                ]
+            )
+        return {
+            "conclusion": conclusion,
+            "basis": basis,
+            "cannot_conclude": cannot_conclude,
+            "recommendation": (
+                "建议进入立项复核阶段：注册人员核验国内同类注册证字段，研发人员输出多重核酸检测性能验证方案，"
+                "医学/临床人员确认目标人群与结果解释边界，专利人员完成 FTO 初筛。四项完成后再形成正式立项结论。"
+            ),
+        }
+
     literature_count = len(literature_materials)
     literature_signals = build_literature_signal_summary(literature_materials)
     marker = literature_signals["marker"]
@@ -844,6 +917,43 @@ def _sample_titles(materials: list[dict], terms: list[str], limit: int = 4) -> s
     return "；".join(titles) if titles else "暂无直接题名线索"
 
 
+def _project_text(
+    materials: list[dict],
+    confirmations: dict | None = None,
+    topic: str = "",
+    *,
+    limit: int = 200,
+) -> str:
+    confirmation_text = ""
+    if confirmations:
+        confirmation_text = " ".join(str(value or "") for value in confirmations.values())
+    title_text = " ".join(item.get("title", "") for item in materials[:limit])
+    return f"{topic} {confirmation_text} {title_text}".lower()
+
+
+def _is_respiratory_project(
+    materials: list[dict],
+    confirmations: dict | None = None,
+    topic: str = "",
+) -> bool:
+    text = _project_text(materials, confirmations, topic)
+    return any(
+        term in text
+        for term in [
+            "呼吸道",
+            "甲型流感",
+            "乙型流感",
+            "甲流",
+            "乙流",
+            "influenza",
+            "flu a",
+            "flu b",
+            "respiratory",
+            "multiplex",
+        ]
+    )
+
+
 def _target_marker(materials: list[dict], confirmations: dict | None = None) -> str:
     profile_text = ""
     if confirmations:
@@ -859,6 +969,10 @@ def _target_marker(materials: list[dict], confirmations: dict | None = None) -> 
                 "patent_scope",
             ]
         ).lower()
+    if any(term in profile_text for term in ["甲型流感", "乙型流感", "甲流", "乙流", "influenza a", "influenza b", "flu a", "flu b"]):
+        return "甲型/乙型流感"
+    if any(term in profile_text for term in ["呼吸道", "respiratory", "multiplex"]):
+        return "呼吸道病原体"
     if any(term in profile_text for term in ["aβ42/40", "abeta42/40", "amyloid beta 42/40", "aβ40", "aβ42"]):
         return "Aβ42/40"
     if "p-tau217" in profile_text or "ptau217" in profile_text or "tau217" in profile_text:
@@ -866,6 +980,10 @@ def _target_marker(materials: list[dict], confirmations: dict | None = None) -> 
     if "p-tau181" in profile_text or "ptau181" in profile_text or "tau181" in profile_text:
         return "p-Tau181"
     text = " ".join(item.get("title", "") for item in materials[:200]).lower()
+    if any(term in text for term in ["甲型流感", "乙型流感", "甲流", "乙流", "influenza a", "influenza b", "flu a", "flu b"]):
+        return "甲型/乙型流感"
+    if any(term in text for term in ["呼吸道", "respiratory", "multiplex"]):
+        return "呼吸道病原体"
     if any(term in text for term in ["aβ42/40", "abeta42/40", "amyloid beta 42/40"]):
         return "Aβ42/40"
     if "217" in text:
@@ -920,6 +1038,47 @@ def build_literature_signal_summary(
     }
 
 
+def build_respiratory_signal_summary(
+    literature_materials: list[dict],
+    confirmations: dict | None = None,
+) -> dict[str, Any]:
+    total = len(literature_materials)
+    pubmed = sum(1 for item in literature_materials if item.get("source_scenario") == "pubmed_literature")
+    pmc = sum(1 for item in literature_materials if item.get("source_scenario") == "pmc_fulltext")
+    extracted = sum(1 for item in literature_materials if item.get("extracted_text_path"))
+    with_abstract = sum(1 for item in literature_materials if (item.get("raw_fields") or {}).get("abstract"))
+    with_structured = sum(1 for item in literature_materials if (item.get("raw_fields") or {}).get("abstract_sections"))
+    topics = {
+        "influenza_a": _count_topic(literature_materials, ["influenza a", "flu a", "甲型流感", "甲流"]),
+        "influenza_b": _count_topic(literature_materials, ["influenza b", "flu b", "乙型流感", "乙流"]),
+        "multiplex": _count_topic(literature_materials, ["multiplex", "panel", "多重", "联检"]),
+        "pcr": _count_topic(literature_materials, ["rt-pcr", "real-time pcr", "pcr", "核酸", "荧光"]),
+        "antigen": _count_topic(literature_materials, ["antigen", "抗原", "lateral flow", "免疫层析"]),
+        "respiratory_sample": _count_topic(literature_materials, ["nasopharyngeal", "oropharyngeal", "nasal swab", "throat swab", "鼻咽", "咽拭子", "鼻拭子"]),
+        "diagnosis": _count_topic(literature_materials, ["diagnosis", "diagnostic", "诊断", "鉴别"]),
+        "children": _count_topic(literature_materials, ["children", "pediatric", "paediatric", "儿童"]),
+        "hospital": _count_topic(literature_materials, ["hospital", "outpatient", "emergency", "icu", "住院", "门诊", "急诊"]),
+        "performance": _count_topic(literature_materials, ["sensitivity", "specificity", "lod", "limit of detection", "灵敏度", "特异性", "最低检出限"]),
+        "standard": _count_topic(literature_materials, ["guideline", "standard", "who", "cdc", "指南", "标准"]),
+    }
+    return {
+        "total": total,
+        "pubmed": pubmed,
+        "pmc": pmc,
+        "extracted": extracted,
+        "with_abstract": with_abstract,
+        "with_structured": with_structured,
+        "topics": topics,
+        "examples": {
+            "influenza": _sample_titles(literature_materials, ["influenza a", "influenza b", "甲型流感", "乙型流感"], 4),
+            "multiplex": _sample_titles(literature_materials, ["multiplex", "panel", "多重", "联检"], 4),
+            "pcr": _sample_titles(literature_materials, ["rt-pcr", "real-time pcr", "核酸", "荧光"], 4),
+            "sample": _sample_titles(literature_materials, ["nasopharyngeal", "oropharyngeal", "nasal swab", "鼻咽", "咽拭子"], 4),
+            "performance": _sample_titles(literature_materials, ["sensitivity", "specificity", "lod", "灵敏度", "特异性"], 4),
+        },
+    }
+
+
 def _signal_sentence(signals: dict[str, Any]) -> str:
     topics = signals.get("topics", {})
     return (
@@ -928,6 +1087,208 @@ def _signal_sentence(signals: dict[str, Any]) -> str:
         f"血液/血浆/血清相关 {topics.get('blood', 0)} 条，CSF 相关 {topics.get('csf', 0)} 条，MCI/早期认知障碍相关 {topics.get('mci', 0)} 条，"
         f"诊断/鉴别诊断相关 {topics.get('diagnosis', 0)} 条，筛查/分诊相关 {topics.get('screening', 0)} 条，风险预测/进展相关 {topics.get('risk', 0)} 条。"
     )
+
+
+def _respiratory_signal_sentence(signals: dict[str, Any]) -> str:
+    topics = signals.get("topics", {})
+    return (
+        f"文献证据共 {signals.get('total', 0)} 条，其中 PubMed {signals.get('pubmed', 0)} 条、PMC/开放全文 {signals.get('pmc', 0)} 条；"
+        f"已解析文本 {signals.get('extracted', 0)} 份，含摘要 {signals.get('with_abstract', 0)} 条，含结构化 Abstract {signals.get('with_structured', 0)} 条。"
+        f"甲型流感相关 {topics.get('influenza_a', 0)} 条，乙型流感相关 {topics.get('influenza_b', 0)} 条，多重/联检相关 {topics.get('multiplex', 0)} 条，"
+        f"RT-PCR/核酸检测相关 {topics.get('pcr', 0)} 条，呼吸道样本相关 {topics.get('respiratory_sample', 0)} 条，性能评价相关 {topics.get('performance', 0)} 条。"
+    )
+
+
+def build_respiratory_project_analysis_sections(
+    *,
+    literature_materials: list[dict],
+    regulatory_materials: list[dict],
+    competitor_materials: list[dict],
+    standard_materials: list[dict],
+    patent_materials: list[dict],
+    materials: list[dict],
+    confirmations: dict | None = None,
+) -> list[dict[str, Any]]:
+    signals = build_respiratory_signal_summary(literature_materials, confirmations)
+    topics = signals["topics"]
+    examples = signals["examples"]
+    signal_text = _respiratory_signal_sentence(signals)
+    literature_titles = _material_title_join(literature_materials)
+    competitor_titles = _material_title_join(competitor_materials)
+    regulatory_titles = _material_title_join(regulatory_materials)
+    standard_titles = _material_title_join(standard_materials)
+    patent_titles = _material_title_join(patent_materials)
+    marker = "甲型/乙型流感多重联检"
+    return [
+        {
+            "id": "analysis-1",
+            "title": "临床意义",
+            "analysis": (
+                f"{signal_text} 从研发立项角度看，{marker} 的核心价值是把发热、咳嗽等呼吸道感染症状人群中的甲流、乙流和可能的其他病原体快速区分，"
+                "减少经验用药和重复送检，为抗病毒药物使用、院感管理和季节性流行监测提供依据。"
+            ),
+            "evidence": f"流感线索：{examples['influenza']}；多重检测线索：{examples['multiplex']}",
+            "gap": "需要按临床场景拆出门急诊、住院、儿童、老年/基础病人群的真实检测需求和结果解释边界。",
+        },
+        {
+            "id": "analysis-2",
+            "title": "临床应用定位",
+            "analysis": (
+                f"{marker} 更适合作为呼吸道感染病原体鉴别诊断和快速分流工具，不宜表述为所有呼吸道感染的一次性确诊方案。"
+                "如果首版只覆盖甲流/乙流，应明确是否与 SARS-CoV-2、RSV 或其他呼吸道病原体形成组合或后续扩展。"
+            ),
+            "evidence": f"诊断/鉴别诊断相关 {topics.get('diagnosis', 0)} 条；RT-PCR/核酸检测相关 {topics.get('pcr', 0)} 条。",
+            "gap": "需要确认预期用途是否为体外诊断、辅助诊断、病原体鉴别、筛查或多病原体联检。",
+        },
+        {
+            "id": "analysis-3",
+            "title": "目标使用场景",
+            "analysis": (
+                "优先场景应放在发热门诊、急诊、儿科、呼吸科、感染科、基层医疗机构和医院检验科。"
+                "多重联检的价值来自同一份样本、同一流程同时给出多个病原体结果，适合症状重叠且流行季病原体混杂的场景。"
+            ),
+            "evidence": f"门急诊/住院相关 {topics.get('hospital', 0)} 条；样本线索：{examples['sample']}",
+            "gap": "需要补充实际检测周转时间、样本转运流程、报告时限和阳性结果处置路径。",
+        },
+        {
+            "id": "analysis-4",
+            "title": "目标人群",
+            "analysis": (
+                "目标人群应定义为出现急性呼吸道感染症状、疑似流感或需病原体鉴别的人群。儿童、老年人、孕妇、慢病和免疫低下人群可能是高价值应用对象，"
+                "但说明书人群边界需要与临床评价样本保持一致。"
+            ),
+            "evidence": f"儿童相关 {topics.get('children', 0)} 条；流感相关材料：{examples['influenza']}",
+            "gap": "需要明确无症状筛查、院感筛查、社区监测是否纳入首版预期用途。",
+        },
+        {
+            "id": "analysis-5",
+            "title": "诊疗路径",
+            "analysis": (
+                "合理路径是临床症状和流行病学判断后采集呼吸道样本，实验室检测后将甲流/乙流阳性、阴性和多病原体结果反馈给临床。"
+                "结果需要结合发病时间、采样质量、抗病毒用药窗口和其他检查结果解释。"
+            ),
+            "evidence": literature_titles,
+            "gap": "需要把检测结果与用药、隔离、复测和其他病原体检测策略对应起来。",
+        },
+        {
+            "id": "analysis-6",
+            "title": "金标准与参照方法",
+            "analysis": (
+                "核酸类多重联检通常需要与已上市核酸检测产品、单重 RT-PCR、测序或临床综合诊断进行一致性/符合率评价。"
+                "如果采用抗原或免疫层析方法，则参照和性能指标体系会不同。"
+            ),
+            "evidence": f"PCR/核酸参照相关 {topics.get('pcr', 0)} 条；性能线索：{examples['performance']}",
+            "gap": "需要确定参照试剂、阳性/阴性判定规则、临界 Ct 值处理和不一致样本复核方法。",
+        },
+        {
+            "id": "analysis-7",
+            "title": "指南与共识",
+            "analysis": (
+                "指南与共识主要用于确认流感检测适用场景、采样时机、样本类型和检测结果解释。"
+                "自动材料可作为入口，但正式注册和临床应用仍需补齐中国本土指南、行业标准和监管要求。"
+            ),
+            "evidence": f"指南/标准相关 {topics.get('standard', 0)} 条；标准材料：{standard_titles}",
+            "gap": "需要补充中国流感诊疗方案、病原学检测指南、呼吸道样本采集规范和实验室管理要求。",
+        },
+        {
+            "id": "analysis-8",
+            "title": "专家和组织意见",
+            "analysis": (
+                "专家和组织意见应围绕流感季节性流行、儿科/急诊快速分诊、抗病毒药物窗口期和多病原体鉴别价值展开。"
+                "目前自动材料只能提供公开文献和规范线索，不能替代 KOL 访谈。"
+            ),
+            "evidence": literature_titles,
+            "gap": "需要补充临床专家、检验科、注册和市场人员对首版检测组合的确认意见。",
+        },
+        {
+            "id": "analysis-9",
+            "title": "市场准入与收费",
+            "analysis": (
+                "多重联检的商业可行性取决于检测收费、医院项目立项、医保/自费接受度、试剂成本和仪器平台装机基础。"
+                "文献不能直接证明准入可行，需要另行采集真实价格和渠道证据。"
+            ),
+            "evidence": "当前材料以文献、注册、标准和专利为主。",
+            "gap": "需要补充各地区收费项目、同类产品价格、医院采购路径和基层/门急诊使用成本。",
+        },
+        {
+            "id": "analysis-10",
+            "title": "市场定位",
+            "analysis": (
+                f"{marker} 的定位可从“流感季快速鉴别”“发热门诊/急诊病原体分流”“实验室多病原体核酸检测菜单”三条线评估。"
+                "如果只做甲乙流，优势在简单明确；如果扩展到多病原体 panel，价值更高但注册、成本和性能验证复杂度也更高。"
+            ),
+            "evidence": competitor_titles,
+            "gap": "需要确认首版组合、目标医院层级、仪器平台、通量和检测成本。",
+        },
+        {
+            "id": "analysis-11",
+            "title": "竞争格局",
+            "analysis": (
+                f"已导入 {len(competitor_materials)} 条竞品/同类注册线索。竞争分析需要重点看已上市产品的检测靶标组合、方法学、样本类型、适用仪器、注册证有效期和说明书预期用途。"
+            ),
+            "evidence": competitor_titles,
+            "gap": "NMPA 官方注册字段、说明书、产品组成和有效期需要逐项复核。",
+        },
+        {
+            "id": "analysis-12",
+            "title": "出口与注册",
+            "analysis": (
+                "呼吸道病原体 IVD 产品注册论证需要明确管理类别、适用样本、检测靶标、阳性判断、交叉反应、干扰和临床评价路径。"
+                "国内注册、欧盟 IVDR 和美国 FDA 路径的证据要求不同，不能混用结论。"
+            ),
+            "evidence": regulatory_titles,
+            "gap": "需要确认中国注册分类、临床试验/同品种比对路径、海外目标市场和申报资料清单。",
+        },
+        {
+            "id": "analysis-13",
+            "title": "技术可行性",
+            "analysis": (
+                f"多重联检技术风险集中在多靶标引物/探针兼容性、交叉反应、不同病毒载量下的 LoD、内参控制、污染防控和样本前处理。"
+                f"当前文献中 RT-PCR/核酸检测相关 {topics.get('pcr', 0)} 条，性能评价相关 {topics.get('performance', 0)} 条，可作为方案设计入口。"
+            ),
+            "evidence": f"方法学线索：{examples['pcr']}；性能线索：{examples['performance']}",
+            "gap": "需要研发输出 LoD、包容性、交叉反应、干扰、精密度、稳定性、阳性符合率和阴性符合率验证方案。",
+        },
+        {
+            "id": "analysis-14",
+            "title": "参考物质",
+            "analysis": (
+                "甲流/乙流多重联检需要稳定可获得的阳性质控、阴性质控、内参、假病毒/灭活病毒或标准品。"
+                "参考物质缺失会影响 LoD、批间一致性、室内质控和注册资料可信度。"
+            ),
+            "evidence": standard_titles,
+            "gap": "需要确认甲流、乙流各亚型/代表株参考物质、质控品和校准/判定体系。",
+        },
+        {
+            "id": "analysis-15",
+            "title": "安全要求",
+            "analysis": (
+                "安全风险主要来自假阴性导致延误抗病毒治疗或院感控制，假阳性导致不必要用药、隔离或焦虑。"
+                "核酸检测还要关注样本采集、防污染、实验室生物安全和结果报告解释。"
+            ),
+            "evidence": regulatory_titles,
+            "gap": "需要形成风险分析、警示语、结果解释模板、复测策略和实验室操作安全要求。",
+        },
+        {
+            "id": "analysis-16",
+            "title": "原材料可获得性",
+            "analysis": (
+                "关键原材料包括引物、探针、酶体系、缓冲液、内参、阳性质控和采样/保存体系。"
+                "多重体系的供应风险不只在单个原料，还在不同批次组合后的兼容性和稳定性。"
+            ),
+            "evidence": patent_titles,
+            "gap": "需要补充核心引物/探针设计边界、关键酶供应、质控材料和专利风险。",
+        },
+        {
+            "id": "analysis-17",
+            "title": "其他发现 / 待归类线索",
+            "analysis": (
+                "当前剩余缺口主要集中在 NMPA 字段核验、PatentHub 登录后的专利全文/FTO、中文全文来源、标准条款和业务专家复核。"
+            ),
+            "evidence": f"当前材料总数 {len(materials)} 条。",
+            "gap": "应将缺口转为 Excel 补证任务，逐项关闭后再形成正式立项结论。",
+        },
+    ]
 
 
 def build_project_analysis_sections(
@@ -940,6 +1301,17 @@ def build_project_analysis_sections(
     materials: list[dict],
     confirmations: dict | None = None,
 ) -> list[dict[str, Any]]:
+    topic = str((confirmations or {}).get("primary_query") or "")
+    if _is_respiratory_project(materials, confirmations, topic):
+        return build_respiratory_project_analysis_sections(
+            literature_materials=literature_materials,
+            regulatory_materials=regulatory_materials,
+            competitor_materials=competitor_materials,
+            standard_materials=standard_materials,
+            patent_materials=patent_materials,
+            materials=materials,
+            confirmations=confirmations,
+        )
     signals = build_literature_signal_summary(literature_materials, confirmations)
     marker = signals["marker"]
     topics = signals["topics"]
@@ -1131,13 +1503,18 @@ def build_business_action_rows(
     scenario_map: dict[str, dict],
 ) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
+    is_respiratory = _is_respiratory_project(literature_materials + regulatory_materials + competitor_materials + standard_materials + patent_materials)
     if not competitor_materials:
         marker = _target_marker(literature_materials)
         rows.append(
             {
                 "priority": "P0",
                 "owner": "注册 / 产品",
-                "action": f"补查 NMPA 同类产品，确认是否已有 AD 血液 {marker} 或相近 AD 标志物 IVD 注册路径/产品。",
+                "action": (
+                    f"补查 NMPA 同类产品，确认是否已有 {marker} 或相近呼吸道病原体 IVD 注册路径/产品。"
+                    if is_respiratory
+                    else f"补查 NMPA 同类产品，确认是否已有 AD 血液 {marker} 或相近 AD 标志物 IVD 注册路径/产品。"
+                ),
                 "acceptance": "形成同类产品清单，至少包含注册证编号、注册人、方法学、样本类型、预期用途和有效期。",
             }
         )
@@ -1199,6 +1576,28 @@ def build_evidence_gap_rows(
     scenario_map: dict[str, dict],
 ) -> list[dict[str, str]]:
     """Business-facing evidence gaps and supplement tasks."""
+    is_respiratory = _is_respiratory_project(
+        literature_materials + regulatory_materials + competitor_materials + standard_materials + patent_materials
+    )
+    sample_gap = (
+        {
+            "gap": "样本类型证据需要按鼻咽拭子、口咽拭子、鼻拭子等呼吸道样本拆分",
+            "current_basis": "当前检索画像包含呼吸道样本和多重联检，但材料中的样本类型尚未统一归类。",
+            "missing_evidence": "各样本类型的采样时机、保存液、稳定性、抑制物、采样质量、运输条件和平台适配证据。",
+            "impact": "影响产品样本声明、采样器具选择、前处理流程和临床性能验证。",
+            "owner": "研发 / 医学 / 注册",
+            "acceptance": "形成样本类型对比表，并明确首版产品建议样本和不适用样本。",
+        }
+        if is_respiratory
+        else {
+            "gap": "样本类型证据需要按血浆、血清、全血拆分",
+            "current_basis": "当前检索画像包含血浆 / 血清 / 全血，但材料中的样本类型尚未统一归类。",
+            "missing_evidence": "各样本类型的稳定性、抗凝剂、冻融、基质效应、干扰和平台适配证据。",
+            "impact": "影响产品样本声明、采血管选择和分析性能验证。",
+            "owner": "研发 / 医学",
+            "acceptance": "形成样本类型对比表，并明确首版产品建议样本。",
+        }
+    )
     rows: list[dict[str, str]] = [
         {
             "gap": "NMPA 官方注册字段仍需逐项核验",
@@ -1211,19 +1610,16 @@ def build_evidence_gap_rows(
         {
             "gap": "核心文献的性能指标尚未结构化提取",
             "current_basis": f"已采集 {len(literature_materials)} 条文献材料。",
-            "missing_evidence": "AUC、灵敏度、特异性、cut-off、样本量、疾病分期、参照方法、平台/方法学。",
+            "missing_evidence": (
+                "LoD、阳性符合率、阴性符合率、灵敏度、特异性、交叉反应、干扰、样本量、参照方法、平台/方法学。"
+                if is_respiratory
+                else "AUC、灵敏度、特异性、cut-off、样本量、疾病分期、参照方法、平台/方法学。"
+            ),
             "impact": "影响是否值得立项、性能目标设定和临床试验方案设计。",
             "owner": "医学 / 研发",
             "acceptance": "核心文献逐条形成指标摘要，并映射到项目分析 17 个章节。",
         },
-        {
-            "gap": "样本类型证据需要按血浆、血清、全血拆分",
-            "current_basis": "当前检索画像包含血浆 / 血清 / 全血，但材料中的样本类型尚未统一归类。",
-            "missing_evidence": "各样本类型的稳定性、抗凝剂、冻融、基质效应、干扰和平台适配证据。",
-            "impact": "影响产品样本声明、采血管选择和分析性能验证。",
-            "owner": "研发 / 医学",
-            "acceptance": "形成样本类型对比表，并明确首版产品建议样本。",
-        },
+        sample_gap,
         {
             "gap": "专利全文和 FTO 判断不足",
             "current_basis": f"已形成 {len(patent_materials)} 条专利检索/风险线索。",
@@ -1261,6 +1657,404 @@ def build_evidence_gap_rows(
             }
         )
     return rows
+
+
+SCREENING_SAMPLE_TERMS = [
+    ("鼻咽拭子", ["鼻咽拭子", "nasopharyngeal", "np swab"]),
+    ("口咽拭子", ["口咽拭子", "oropharyngeal", "op swab"]),
+    ("鼻拭子", ["鼻拭子", "nasal swab"]),
+    ("咽拭子", ["咽拭子", "throat swab", "pharyngeal"]),
+    ("痰液", ["痰液", "sputum"]),
+    ("呼吸道分泌物", ["呼吸道分泌物", "respiratory specimen", "respiratory sample"]),
+    ("血浆", ["血浆", "plasma"]),
+    ("血清", ["血清", "serum"]),
+    ("全血", ["全血", "whole blood"]),
+    ("脑脊液", ["脑脊液", "cerebrospinal fluid", "csf"]),
+]
+
+SCREENING_PLATFORM_TERMS = [
+    ("多重联检", ["多重", "multiplex", "panel", "联检"]),
+    ("多重RT-PCR", ["multiplex rt-pcr", "rt-pcr", "reverse transcription pcr", "实时荧光"]),
+    ("荧光PCR", ["荧光pcr", "real-time pcr", "qpcr"]),
+    ("核酸检测", ["核酸", "nucleic acid", "molecular"]),
+    ("抗原检测", ["抗原", "antigen"]),
+    ("免疫层析", ["免疫层析", "lateral flow"]),
+    ("化学发光", ["化学发光", "chemiluminescence", "clia"]),
+    ("ELISA", ["elisa"]),
+    ("NGS", ["ngs", "sequencing", "测序"]),
+]
+
+SCREENING_REFERENCE_TERMS = [
+    ("临床诊断", ["临床诊断", "clinical diagnosis"]),
+    ("PCR/核酸参照", ["pcr", "rt-pcr", "核酸"]),
+    ("培养", ["培养", "culture"]),
+    ("测序", ["sequencing", "测序"]),
+    ("影像/临床路径", ["影像", "imaging", "clinical pathway"]),
+    ("NMPA/注册资料", ["nmpa", "注册证", "审评", "cmde"]),
+    ("标准/指南", ["标准", "指南", "guideline", "standard"]),
+]
+
+SCREENING_USE_TERMS = [
+    ("辅助诊断", ["辅助诊断", "diagnosis", "diagnostic"]),
+    ("筛查/分诊", ["筛查", "分诊", "screening", "triage"]),
+    ("风险分层", ["风险", "分层", "risk", "prediction"]),
+    ("病原体鉴别", ["鉴别", "differential", "pathogen", "病原体"]),
+    ("注册申报", ["注册", "申报", "nmpa", "cmde"]),
+    ("竞品定位", ["竞品", "同类产品", "registration certificate"]),
+    ("FTO/专利风险", ["专利", "patent", "claim", "freedom to operate", "fto"]),
+    ("方法学验证", ["方法学", "性能", "validation", "verification"]),
+]
+
+SCREENING_POPULATION_TERMS = [
+    ("儿童", ["儿童", "children", "pediatric", "paediatric"]),
+    ("成人", ["成人", "adult"]),
+    ("老年人", ["老年", "elderly", "older"]),
+    ("疑似感染人群", ["疑似", "suspected", "symptomatic"]),
+    ("门急诊人群", ["门诊", "急诊", "outpatient", "emergency"]),
+    ("住院/重症人群", ["住院", "重症", "hospitalized", "severe", "icu"]),
+    ("认知障碍人群", ["认知", "mci", "dementia", "alzheimer"]),
+]
+
+SCREENING_MARKER_TERMS = [
+    ("甲型流感", ["甲型流感", "influenza a", "flu a", "甲流"]),
+    ("乙型流感", ["乙型流感", "influenza b", "flu b", "乙流"]),
+    ("SARS-CoV-2", ["sars-cov-2", "covid"]),
+    ("RSV", ["rsv", "respiratory syncytial"]),
+    ("呼吸道病原体", ["呼吸道病原体", "respiratory pathogen"]),
+    ("p-Tau217", ["p-tau217", "ptau217", "tau217"]),
+    ("p-Tau181", ["p-tau181", "ptau181", "tau181"]),
+    ("Aβ42/40", ["aβ42/40", "abeta42/40", "amyloid beta 42/40"]),
+]
+
+SCREENING_METRIC_TERMS = [
+    ("灵敏度", ["灵敏度", "sensitivity"]),
+    ("特异性", ["特异性", "specificity"]),
+    ("AUC", ["auc", "area under"]),
+    ("cut-off", ["cut-off", "cutoff", "阈值", "截断值"]),
+    ("LoD", ["lod", "最低检出限", "limit of detection"]),
+    ("一致性/Kappa", ["kappa", "一致性", "agreement"]),
+    ("样本量", ["样本量", "sample size", "participants", "patients"]),
+    ("精密度", ["精密度", "precision", "repeatability"]),
+]
+
+
+def _screening_text(card: dict, material: dict) -> str:
+    raw = material.get("raw_fields") or {}
+    parts: list[str] = [
+        card.get("title", ""),
+        card.get("summary", ""),
+        " ".join(card.get("key_facts") or []),
+        " ".join(card.get("parameter_facts") or []),
+        material.get("title", ""),
+        material.get("structured_summary", ""),
+        raw.get("abstract", ""),
+        raw.get("summary", ""),
+        raw.get("scope", ""),
+        raw.get("basic_info_text", ""),
+        raw.get("full_visible_text", ""),
+        raw.get("methodology", ""),
+        raw.get("sample_type", ""),
+        raw.get("intended_use", ""),
+        raw.get("registrant", ""),
+    ]
+    return " ".join(str(part or "") for part in parts)
+
+
+def _pick_screening_terms(
+    text: str,
+    candidates: list[tuple[str, list[str]]],
+    *,
+    fallback: str = "待复核",
+    limit: int = 4,
+) -> list[str]:
+    lowered = str(text or "").lower()
+    values: list[str] = []
+    for label, terms in candidates:
+        if any(term.lower() in lowered for term in terms):
+            values.append(label)
+        if len(values) >= limit:
+            break
+    return values or [fallback]
+
+
+def _screening_year(material: dict) -> str:
+    raw = material.get("raw_fields") or {}
+    value = (
+        material.get("display_year")
+        or str(material.get("publication_date") or "")[:4]
+        or str(raw.get("approval_date") or "")[:4]
+        or str(raw.get("publication_date") or "")[:4]
+    )
+    match = re.search(r"\d{4}", str(value or ""))
+    return match.group(0) if match else "-"
+
+
+def _screening_priority(card: dict, material: dict) -> tuple[str, str]:
+    material_type = material.get("material_type", "")
+    source = material.get("source_scenario", "")
+    score = 0
+    if material_type in {"regulatory", "competitor", "standard"}:
+        score += 2
+    if material_type == "patent":
+        score += 1
+    if source in {"pubmed_literature", "pmc_fulltext", "openalex_literature"}:
+        score += 1
+    if material.get("pmid") or material.get("pmcid") or material.get("doi"):
+        score += 1
+    if card.get("parameter_facts") or card.get("metric_facts"):
+        score += 3
+    if card.get("include_in_report"):
+        score += 1
+    if material.get("download_files") or material.get("extracted_text_path"):
+        score += 1
+    if score >= 4:
+        return "A", "A 核心必读"
+    if score >= 2:
+        return "B", "B 重点复核"
+    return "C", "C 背景补充"
+
+
+def _screening_stage(material: dict, card: dict) -> list[str]:
+    material_type = material.get("material_type", "")
+    text = _screening_text(card, material)
+    if material_type == "regulatory":
+        return ["注册路径判断"]
+    if material_type == "standard":
+        return ["性能/标准评价"]
+    if material_type == "competitor":
+        return ["竞品/注册参照"]
+    if material_type == "patent":
+        return ["专利/FTO初筛"]
+    if _contains_any(text, ["sensitivity", "specificity", "auc", "lod", "灵敏度", "特异性", "最低检出限"]):
+        return ["临床性能验证"]
+    if _contains_any(text, ["guideline", "consensus", "指南", "共识"]):
+        return ["指南/共识判断"]
+    return ["临床价值判断"]
+
+
+def _screening_region(material: dict, text: str) -> list[str]:
+    source = material.get("source_scenario", "")
+    if source in {"nmpa_competitor", "cmde_regulatory", "standards_current", "chinese_journal"}:
+        return ["中国"]
+    if _contains_any(text, ["fda", "united states", "美国"]):
+        return ["美国"]
+    if _contains_any(text, ["ce ", "ivdr", "europe", "欧盟", "欧洲"]):
+        return ["欧盟"]
+    if _contains_any(text, ["china", "chinese", "中国"]):
+        return ["中国"]
+    return ["国际/未限定"]
+
+
+def _screening_evidence_types(material: dict) -> list[str]:
+    material_type = material.get("material_type", "")
+    source = material.get("source_scenario", "")
+    values: list[str] = []
+    if source == "pubmed_literature" or material.get("pmid"):
+        values.append("PubMed")
+    if source == "pmc_fulltext" or material.get("pmcid"):
+        values.append("PMC全文")
+    if source == "openalex_literature":
+        values.append("OpenAlex")
+    if material.get("doi"):
+        values.append("DOI")
+    type_labels = {
+        "regulatory": "法规/审评",
+        "competitor": "竞品注册",
+        "standard": "标准",
+        "patent": "专利",
+        "literature": "文献",
+        "local_import": "本地导入",
+    }
+    if type_labels.get(material_type) and type_labels[material_type] not in values:
+        values.append(type_labels[material_type])
+    if material.get("structured_summary"):
+        values.append("摘要/正文线索")
+    return values or ["来源待复核"]
+
+
+def _screening_metric_labels(card: dict, text: str) -> list[str]:
+    values = _pick_screening_terms(text, SCREENING_METRIC_TERMS, fallback="", limit=6)
+    values = [item for item in values if item]
+    for fact in card.get("parameter_facts") or []:
+        head = str(fact).split("：", 1)[0].strip()
+        if head and head not in values:
+            values.append(head[:28])
+    return values[:6] or ["待提取"]
+
+
+def _screening_summary_lines(card: dict, material: dict) -> list[str]:
+    raw = material.get("raw_fields") or {}
+    lines = [
+        f"研发用途/应用场景：{'、'.join(card.get('use') or ['待复核'])}",
+        f"样本/参照/平台：{'、'.join(card.get('sample') or ['待复核'])} / {'、'.join(card.get('reference') or ['待复核'])} / {'、'.join(card.get('platform') or ['待复核'])}",
+        f"参数与组合线索：{'、'.join(card.get('metrics') or ['待提取'])}；{'、'.join(card.get('markers') or ['目标物待复核'])}",
+    ]
+    if raw.get("registration_certificate_number"):
+        lines.append(f"注册证号：{raw.get('registration_certificate_number')}")
+    if raw.get("publication_number"):
+        lines.append(f"公开/专利号：{raw.get('publication_number')}")
+    return lines
+
+
+def _screening_excerpt_lines(card: dict, material: dict) -> list[str]:
+    excerpts = []
+    for item in card.get("key_excerpts") or []:
+        text = clean_evidence_summary(item.get("text", ""))
+        if text:
+            excerpts.append(text)
+    if card.get("display_facts"):
+        excerpts.extend(card.get("display_facts") or [])
+    if not excerpts and material.get("abstract_sections_display"):
+        excerpts.extend(
+            f"{item.get('label')}: {item.get('text')}"
+            for item in material.get("abstract_sections_display", [])[:2]
+            if item.get("text")
+        )
+    if not excerpts and material.get("structured_summary"):
+        excerpts.append(material["structured_summary"])
+    return [str(item)[:700] for item in excerpts[:4]]
+
+
+def _screening_review_points(card: dict, material: dict) -> list[str]:
+    points = list(card.get("gap_tasks") or [])
+    if not material.get("display_url"):
+        points.append("缺少可点击原始来源链接，需要补齐来源。")
+    if not material.get("download_files") and not material.get("extracted_text_path"):
+        points.append("尚未取得原文/PDF或正文抽取，正式引用前需要补证。")
+    if "待提取" in (card.get("metrics") or []):
+        points.append("性能指标尚未结构化，需要人工抽取 AUC、灵敏度、特异性、LoD、cut-off 等。")
+    if card.get("priority_class") == "A":
+        points.append("核心证据，建议研发/医学/注册共同复核后进入立项材料。")
+    return points[:5] or ["自动归类结果需人工确认后再作为正式结论。"]
+
+
+def build_screening_cards(materials: list[dict], evidence_cards: list[dict]) -> list[dict[str, Any]]:
+    materials_by_id = {item.get("material_id"): item for item in materials}
+    screening_cards: list[dict[str, Any]] = []
+    for index, source_card in enumerate(evidence_cards, start=1):
+        material = materials_by_id.get(source_card.get("material_id"), {})
+        row = dict(source_card)
+        text = _screening_text(row, material)
+        priority_class, priority_label = _screening_priority(row, material)
+        row["card_id"] = row.get("evidence_card_id") or f"EC-{index:04d}"
+        row["screening_id"] = f"SC-{index:04d}"
+        row["title"] = clean_display_title(row.get("title") or material.get("title") or "未命名证据")
+        row["year"] = _screening_year(material)
+        row["journal"] = material.get("journal") or material.get("source_scenario_zh") or material.get("source_scenario") or "-"
+        row["authors"] = _first_raw(material.get("raw_fields") or {}, "authors", "author_string", "registrant", "applicant")
+        row["source_url"] = material.get("display_url") or material.get("source_url", "")
+        row["source_label"] = material.get("source_scenario_zh") or material.get("material_type_zh") or "-"
+        row["priority_class"] = priority_class
+        row["priority_label"] = priority_label
+        row["stage"] = _screening_stage(material, row)
+        row["sample"] = _pick_screening_terms(text, SCREENING_SAMPLE_TERMS, fallback="样本待复核")
+        row["platform"] = _pick_screening_terms(text, SCREENING_PLATFORM_TERMS, fallback="平台待复核")
+        row["reference"] = _pick_screening_terms(text, SCREENING_REFERENCE_TERMS, fallback="参照待复核")
+        row["use"] = _pick_screening_terms(text, SCREENING_USE_TERMS, fallback="用途待复核")
+        row["population"] = _pick_screening_terms(text, SCREENING_POPULATION_TERMS, fallback="人群待复核")
+        row["markers"] = _pick_screening_terms(text, SCREENING_MARKER_TERMS, fallback="目标物待复核")
+        row["metrics"] = _screening_metric_labels(row, text)
+        row["region"] = _screening_region(material, text)
+        row["evidence_types"] = _screening_evidence_types(material)
+        row["labels"] = sorted(
+            {
+                *[str(item) for item in row.get("taxonomy_tags") or [] if str(item).strip()],
+                material.get("material_type_zh", ""),
+                material.get("source_scenario_zh", ""),
+            }
+            - {""}
+        )[:8]
+        row["summary_lines"] = _screening_summary_lines(row, material)
+        row["excerpt_lines"] = _screening_excerpt_lines(row, material)
+        row["review_points"] = _screening_review_points(row, material)
+        row["data_text"] = " ".join(
+            str(part or "")
+            for part in [
+                row["title"],
+                row.get("summary", ""),
+                text,
+                " ".join(row["labels"]),
+                " ".join(row["summary_lines"]),
+            ]
+        )[:4000]
+        for key in [
+            "stage",
+            "sample",
+            "platform",
+            "reference",
+            "use",
+            "population",
+            "markers",
+            "metrics",
+            "region",
+            "evidence_types",
+        ]:
+            row[f"data_{key}"] = ";".join(row[key])
+        row["data_priority"] = row["priority_label"]
+        screening_cards.append(row)
+
+    priority_order = {"A": 0, "B": 1, "C": 2}
+    screening_cards.sort(
+        key=lambda item: (
+            priority_order.get(item.get("priority_class", "C"), 9),
+            item.get("year") == "-",
+            str(item.get("year") or ""),
+            item.get("title", ""),
+        )
+    )
+    return screening_cards
+
+
+def build_filter_groups(screening_cards: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    definitions = [
+        ("priority", "证据优先级", "priority_label"),
+        ("stage", "研发阶段", "stage"),
+        ("sample", "样本类型", "sample"),
+        ("platform", "检测平台/方法", "platform"),
+        ("reference", "参照标准", "reference"),
+        ("use", "应用场景", "use"),
+        ("population", "目标人群", "population"),
+        ("metrics", "性能参数", "metrics"),
+        ("markers", "组合标志物", "markers"),
+        ("region", "地域/人群", "region"),
+        ("evidence", "证据类型", "evidence_types"),
+    ]
+    groups: list[dict[str, Any]] = []
+    for key, label, field in definitions:
+        counts: dict[str, int] = {}
+        for card in screening_cards:
+            raw_values = card.get(field, [])
+            values = raw_values if isinstance(raw_values, list) else [raw_values]
+            for value in values:
+                value = str(value or "").strip()
+                if value:
+                    counts[value] = counts.get(value, 0) + 1
+        if key == "priority":
+            order = {"A 核心必读": 0, "B 重点复核": 1, "C 背景补充": 2}
+            options = sorted(counts.items(), key=lambda item: order.get(item[0], 9))
+        else:
+            options = sorted(counts.items(), key=lambda item: (-item[1], item[0]))[:18]
+        groups.append(
+            {
+                "key": key,
+                "label": label,
+                "options": [{"value": value, "count": count} for value, count in options],
+            }
+        )
+    return groups
+
+
+def build_screening_summary(screening_cards: list[dict[str, Any]]) -> dict[str, Any]:
+    counts = {"A": 0, "B": 0, "C": 0}
+    for card in screening_cards:
+        key = card.get("priority_class", "C")
+        counts[key] = counts.get(key, 0) + 1
+    return {
+        "total": len(screening_cards),
+        "core": counts.get("A", 0),
+        "review": counts.get("B", 0),
+        "background": counts.get("C", 0),
+    }
 
 
 def build_report(task_dir: Path, report_type: str) -> dict:
@@ -1570,6 +2364,12 @@ def build_standard_report(task_dir: Path, output: Path | None = None) -> dict:
     registration_materials = (
         regulatory_materials + competitor_materials + standard_materials + patent_materials
     )
+    screening_cards = build_screening_cards(materials, evidence_cards)
+    core_cards = [card for card in screening_cards if card.get("priority_class") == "A"][:60]
+    if not core_cards:
+        core_cards = screening_cards[:30]
+    filter_groups = build_filter_groups(screening_cards)
+    screening_summary = build_screening_summary(screening_cards)
 
     template_path = asset_root() / "templates" / "standard-delivery-report.html"
     report_output = output or task_dir / "reports" / "standard-delivery-report.html"
@@ -1579,7 +2379,11 @@ def build_standard_report(task_dir: Path, output: Path | None = None) -> dict:
         report_title=report_display_title(task["topic"]),
         materials=materials,
         materials_by_id=materials_by_id,
-        evidence_cards=evidence_cards[:SOURCE_DISPLAY_LIMIT],
+        evidence_cards=evidence_cards,
+        screening_cards=screening_cards,
+        core_cards=core_cards,
+        filter_groups=filter_groups,
+        screening_summary=screening_summary,
         review_source=review_source,
         scenario_statuses=scenario_statuses,
         scenario_map=scenario_map,

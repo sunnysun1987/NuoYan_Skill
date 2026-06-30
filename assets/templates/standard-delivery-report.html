@@ -6,6 +6,74 @@
   <title>{{ report_title }}</title>
   <style>{{ css }}</style>
 </head>
+{% macro render_screening_card(card) -%}
+<article class="card filter-card"
+  data-priority="{{ card.data_priority }}"
+  data-stage="{{ card.data_stage }}"
+  data-sample="{{ card.data_sample }}"
+  data-platform="{{ card.data_platform }}"
+  data-reference="{{ card.data_reference }}"
+  data-use="{{ card.data_use }}"
+  data-population="{{ card.data_population }}"
+  data-markers="{{ card.data_markers }}"
+  data-metrics="{{ card.data_metrics }}"
+  data-region="{{ card.data_region }}"
+  data-evidence="{{ card.data_evidence_types }}"
+  data-text="{{ card.data_text }}">
+  <div class="card-head">
+    <div>
+      <div class="card-id">{{ card.screening_id }} / {{ card.card_id }}</div>
+      <h3>
+        {% if card.source_url %}
+        <a href="{{ card.source_url }}" target="_blank" rel="noopener noreferrer">{{ card.title }}</a>
+        {% else %}
+        {{ card.title }}
+        {% endif %}
+      </h3>
+      <p class="card-source">{{ card.journal }}{% if card.authors %} · {{ card.authors }}{% endif %}</p>
+    </div>
+    <div class="card-meta">
+      <span class="priority {{ card.priority_class }}">{{ card.priority_label }}</span>
+      <span class="year">{{ card.year }}</span>
+    </div>
+  </div>
+
+  <div class="tag-row">
+    {% for tag in card.stage + card.sample + card.platform + card.reference + card.use + card.evidence_types %}
+    <span class="tag">{{ tag }}</span>
+    {% endfor %}
+  </div>
+
+  <div class="card-block">
+    <h4>证据卡摘要</h4>
+    <ul class="fact-list">
+      {% for line in card.summary_lines %}
+      <li>{{ line }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+
+  {% if card.excerpt_lines %}
+  <details class="card-details">
+    <summary>关键摘录 / Abstract</summary>
+    {% for line in card.excerpt_lines %}
+    <p>{{ line }}</p>
+    {% endfor %}
+  </details>
+  {% endif %}
+
+  {% if card.review_points %}
+  <details class="card-details">
+    <summary>待复核点</summary>
+    <ul class="fact-list">
+      {% for point in card.review_points %}
+      <li>{{ point }}</li>
+      {% endfor %}
+    </ul>
+  </details>
+  {% endif %}
+</article>
+{%- endmacro %}
 <body>
 <main>
   <header class="page-header">
@@ -13,578 +81,253 @@
     <p class="meta"><span>任务ID：{{ task_id }}</span><span>生成时间：{{ generated_at }}</span><span>技能：诺研_skill</span><span>代码版本：V2.1</span></p>
   </header>
 
-  <div class="tab-shell">
-    <nav class="tab-list" role="tablist" aria-label="项目调研分析综述页签">
-      <button class="tab-button active" type="button" data-tab-target="tab-overview">总览</button>
-      <button class="tab-button" type="button" data-tab-target="tab-analysis">项目分析</button>
-      <button class="tab-button" type="button" data-tab-target="tab-map">证据地图</button>
-      <button class="tab-button" type="button" data-tab-target="tab-key-evidence">关键证据</button>
-      <button class="tab-button" type="button" data-tab-target="tab-literature-search">文献检索</button>
-      <button class="tab-button" type="button" data-tab-target="tab-registration">竞品与注册</button>
-      <button class="tab-button" type="button" data-tab-target="tab-gap-actions">缺口与任务</button>
-      <button class="tab-button" type="button" data-tab-target="tab-ledger">材料台账</button>
-    </nav>
+  {% if collection_alerts.level != "ok" %}
+  <div class="alert-panel {{ collection_alerts.level }}">
+    <h2>采集异常与交付边界</h2>
+    {% for message in collection_alerts.critical_messages %}
+    <p>{{ message }}</p>
+    {% endfor %}
+    {% for message in collection_alerts.warning_messages %}
+    <p>{{ message }}</p>
+    {% endfor %}
+  </div>
+  {% endif %}
 
-    <section class="tab-panel active" id="tab-overview">
-      {% if collection_alerts.level != "ok" %}
-      <div class="alert-panel {{ collection_alerts.level }}">
-        <h2>采集异常</h2>
-        {% for message in collection_alerts.critical_messages %}
-        <p>{{ message }}</p>
-        {% endfor %}
-        {% for message in collection_alerts.warning_messages %}
-        <p>{{ message }}</p>
-        {% endfor %}
+  <nav class="tabs" role="tablist" aria-label="研发筛选报告页签">
+    <button class="tab active" type="button" data-tab-target="tab-analysis">项目分析</button>
+    <button class="tab" type="button" data-tab-target="tab-reading">研发阅读入口</button>
+    <button class="tab" type="button" data-tab-target="tab-core">核心必读文献</button>
+    <button class="tab" type="button" data-tab-target="tab-screening">证据卡筛选器</button>
+  </nav>
+
+  <div class="screening-layout">
+    <aside class="filters" aria-label="证据筛选">
+      <div class="filter-head">
+        <div class="filter-title">研发筛选</div>
+        <div class="filter-count"><span id="visible-card-count">{{ screening_summary.total }}</span> / {{ screening_summary.total }}</div>
       </div>
-      {% endif %}
+      <input id="global-card-search" class="filter-search" type="search" placeholder="搜索标题、摘要、平台、指标">
 
-      <div class="metric-grid">
-        <div class="metric-card">
-          <div class="value {% if materials|length == 0 %}danger{% endif %}">{{ materials|length }}</div>
-          <div class="label">已登记材料</div>
-        </div>
-        <div class="metric-card">
-          <div class="value {% if evidence_cards|length == 0 %}danger{% endif %}">{{ evidence_cards|length }}</div>
-          <div class="label">证据卡</div>
-        </div>
-        <div class="metric-card">
-          <div class="value info">{{ literature_materials|length }}</div>
-          <div class="label">文献材料</div>
-        </div>
-        <div class="metric-card">
-          <div class="value warn">{{ failed_scenarios|length }}</div>
-          <div class="label">受限场景</div>
-        </div>
-        <div class="metric-card">
-          <div class="value info">{{ knowledge_status.metric_fact_count }}</div>
-          <div class="label">指标事实</div>
-        </div>
-        <div class="metric-card">
-          <div class="value info">{{ source_runs|length }}</div>
-          <div class="label">外部科学证据批次</div>
-        </div>
-      </div>
-
-      <div class="section-card">
-        <h2>检索条件</h2>
-        <table class="profile-table">
-          <tbody>
-            {% for item in search_profile %}
-            <tr><th>{{ item.label }}</th><td>{{ item.value }}</td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-
-      <div class="section-card">
-        <h2>项目当前状态</h2>
-        <table>
-          <thead>
-            <tr><th>判断项</th><th>当前状态</th><th>业务含义</th></tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>证据基础</td>
-              <td><span class="status-pill {% if materials|length == 0 or evidence_cards|length == 0 %}danger{% else %}success{% endif %}">{% if materials|length == 0 or evidence_cards|length == 0 %}不足{% else %}已形成{% endif %}</span></td>
-              <td>{% if materials|length == 0 or evidence_cards|length == 0 %}不能支持研发业务评审，应先完成核心来源采集和证据卡生成。{% else %}可进入研发、医学、注册和产品人员联合审阅。{% endif %}</td>
-            </tr>
-            <tr>
-              <td>文献覆盖</td>
-              <td><span class="status-pill {% if literature_materials|length == 0 %}danger{% else %}success{% endif %}">{{ literature_materials|length }} 条</span></td>
-              <td>用于支撑临床意义、目标人群、诊疗路径、技术可行性和样本类型判断。</td>
-            </tr>
-            <tr>
-              <td>竞品与注册</td>
-              <td><span class="status-pill {% if registration_materials|length == 0 %}danger{% else %}success{% endif %}">{{ registration_materials|length }} 条</span></td>
-              <td>用于确认国内注册参照、同类产品、法规路径、标准要求和专利风险。</td>
-            </tr>
-            <tr>
-              <td>本地材料导入</td>
-              <td><span class="status-pill info">optional / 非必要</span></td>
-              <td>本地材料是补充资料，不作为本次自动检索和报告生成的必要条件。</td>
-            </tr>
-            <tr>
-              <td>V2.1 知识沉淀</td>
-              <td><span class="status-pill {% if knowledge_status.literature_graph_exists and knowledge_status.topic_index_exists %}success{% else %}warn{% endif %}">{% if knowledge_status.literature_graph_exists and knowledge_status.topic_index_exists %}已生成{% else %}待生成{% endif %}</span></td>
-              <td>输出指标事实、主题索引和文献关系图，用于后续项目复用和关联挖掘。</td>
-            </tr>
-            <tr>
-              <td>人工复核</td>
-              <td><span class="status-pill warn">{{ review_source }}</span></td>
-              <td>Excel 审阅与补证任务表是进入正式立项会前的业务复核入口。</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      {% if source_runs %}
-      <div class="section-card">
-        <h2>外部科学数据库证据</h2>
-        <table>
-          <thead>
-            <tr><th>批次</th><th>证据通道</th><th>来源库</th><th>查询式</th><th>导入材料</th></tr>
-          </thead>
-          <tbody>
-            {% for run in source_runs %}
-            <tr>
-              <td>{{ run.source_run_id }}</td>
-              <td>{{ run.evidence_lane }}</td>
-              <td>{{ run.source_database }}</td>
-              <td>{{ run.query }}</td>
-              <td>{{ run.imported_material_ids|length }}</td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-      {% endif %}
-    </section>
-
-    <section class="tab-panel" id="tab-analysis">
-      <div class="section-card">
-        <h2>综合结论</h2>
-        <p>{{ business_decision.conclusion }}</p>
-        <div class="insight">{{ business_decision.recommendation }}</div>
-      </div>
-
-      <div class="section-card">
-        <h2>目录</h2>
-        <ol class="analysis-toc">
+      <div class="filter-group">
+        <div class="filter-title">项目分析目录</div>
+        <div class="toc-list">
           {% for section in project_analysis_sections %}
-          <li><a href="#{{ section.id }}">{{ section.title }}</a></li>
+          <a href="#{{ section.id }}">{{ loop.index }}. {{ section.title }}</a>
           {% endfor %}
-        </ol>
+        </div>
       </div>
 
-      {% for section in project_analysis_sections %}
-      <article class="section-card analysis-section" id="{{ section.id }}">
-        <h2>{{ loop.index }}. {{ section.title }}</h2>
-        <h3>分析</h3>
-        <p>{{ section.analysis }}</p>
-        <h3>当前依据</h3>
-        <p>{{ section.evidence }}</p>
-        <h3>待补判断依据</h3>
-        <p>{{ section.gap }}</p>
-      </article>
+      {% for group in filter_groups %}
+      <div class="filter-group" data-filter-group="{{ group.key }}">
+        <div class="filter-title">{{ group.label }}</div>
+        <div class="chip-row">
+          {% for option in group.options %}
+          <button class="chip" type="button" data-filter-key="{{ group.key }}" data-filter-value="{{ option.value }}">{{ option.value }} <span>{{ option.count }}</span></button>
+          {% endfor %}
+        </div>
+      </div>
       {% endfor %}
-    </section>
+    </aside>
 
-    <section class="tab-panel" id="tab-map">
-      <div class="section-card">
-        <h2>证据地图</h2>
-        <table>
-          <thead>
-            <tr><th>证据域</th><th>材料数</th><th>采集状态</th><th>业务用途</th></tr>
-          </thead>
-          <tbody>
-            {% for row in evidence_map %}
-            <tr>
-              <td>{{ row.name }}</td>
-              <td>{{ row.count }}</td>
-              <td><span class="status-pill {{ row.level }}">{{ row.status }}</span></td>
-              <td>{{ row.use }}</td>
-            </tr>
+    <div class="workspace">
+      <section class="tab-panel active" id="tab-analysis">
+        <div class="analysis-layout">
+          <aside class="analysis-toc-panel">
+            <div class="filter-title">项目分析</div>
+            {% for section in project_analysis_sections %}
+            <a href="#{{ section.id }}">{{ loop.index }}. {{ section.title }}</a>
             {% endfor %}
-          </tbody>
-        </table>
-      </div>
-
-      <div class="section-card">
-        <h2>场景执行状态</h2>
-        <table>
-          <thead>
-            <tr><th>来源场景</th><th>状态</th><th>最近说明</th><th>业务处理</th></tr>
-          </thead>
-          <tbody>
-            {% for item in scenario_statuses %}
-            <tr>
-              <td>{{ item.label_zh }}</td>
-              <td><span class="status-pill {% if item.status == 'completed' %}success{% elif item.status in ['collection_failed','needs_login','permission_required'] %}danger{% elif item.status in ['not_started','no_results','needs_manual_review'] %}warn{% else %}info{% endif %}">{{ item.status_display }}</span></td>
-              <td>{{ item.last_message or item.error_message or "-" }}</td>
-              <td>{% if item.status == "not_started" and item.scenario_id == "local_import" %}非必要补充项{% else %}{{ item.next_action or "按缺口与任务页签处理" }}{% endif %}</td>
-            </tr>
+          </aside>
+          <div class="analysis-stack">
+            {% for section in project_analysis_sections %}
+            <article class="analysis-card" id="{{ section.id }}">
+              <h2>{{ section.title }}</h2>
+              <div class="analysis-block">
+                <h3>分析</h3>
+                <p>{{ section.analysis }}</p>
+              </div>
+              <div class="analysis-block">
+                <h3>当前依据</h3>
+                <p>{{ section.evidence }}</p>
+              </div>
+              <div class="analysis-block gap">
+                <h3>待补判断依据</h3>
+                <p>{{ section.gap }}</p>
+              </div>
+            </article>
             {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </section>
-
-    <section class="tab-panel" id="tab-key-evidence">
-      <div class="section-card">
-        <h2>关键证据</h2>
-        <div class="search-toolbar" data-controls-for="key-evidence-list">
-          <input class="search-input" type="search" placeholder="按标题、来源、摘要检索">
-          <select class="sort-select" aria-label="按时间排序">
-            <option value="date-desc">时间倒序</option>
-            <option value="date-asc">时间正序</option>
-          </select>
-          <button class="search-button" type="button">搜索</button>
+          </div>
         </div>
-        <div id="key-evidence-list" class="record-list">
-        {% if evidence_cards %}
-          {% for card in evidence_cards %}
-          {% set source = materials_by_id.get(card.material_id, {}) %}
-          <article class="record filter-card" data-date="{{ source.publication_sort_date or source.raw_fields.get('approval_date', '') }}" data-search="{{ card.title }} {{ source.source_scenario_zh }} {{ card.summary }}">
-            <div class="card-header">
-              <h3>
-                {% if source.display_url %}
-                <a href="{{ source.display_url }}" target="_blank" rel="noopener noreferrer">{{ card.title }}</a>
-                {% else %}
-                {{ card.title }}
-                {% endif %}
-              </h3>
-              <span class="tag">{{ card.material_type_zh }}</span>
-              <span class="tag warn">{{ card.evidence_strength_zh }}</span>
-            </div>
-            <div class="field-grid">
-              <div><b>来源</b><span>{{ source.source_scenario_zh or "-" }}</span></div>
-              {% if card.source_name %}<div><b>信源</b><span>{{ card.source_name }}</span></div>{% endif %}
-              {% if card.priority_level %}<div><b>优先级</b><span>{{ card.priority_level }}</span></div>{% endif %}
-              <div><b>日期</b><span>{{ source.publication_date_display or source.display_year or source.raw_fields.get("approval_date", "") or "-" }}</span></div>
-              {% if source.pmid %}<div><b>PMID</b><span>{{ source.pmid }}</span></div>{% endif %}
-              {% if source.pmcid %}<div><b>PMCID</b><span>{{ source.pmcid }}</span></div>{% endif %}
-              {% if source.doi %}<div><b>DOI</b><span>{{ source.doi }}</span></div>{% endif %}
-            </div>
-            <p>{{ card.summary }}</p>
-            {% if card.display_facts %}
-            <ul class="fact-list">
-              {% for fact in card.display_facts %}
-              <li>{{ fact }}</li>
+      </section>
+
+      <section class="tab-panel" id="tab-reading">
+        <div class="metric-grid compact">
+          <div class="metric-card"><div class="value">{{ materials|length }}</div><div class="label">已登记材料</div></div>
+          <div class="metric-card"><div class="value">{{ screening_summary.total }}</div><div class="label">筛选证据卡</div></div>
+          <div class="metric-card"><div class="value info">{{ screening_summary.core }}</div><div class="label">核心必读</div></div>
+          <div class="metric-card"><div class="value warn">{{ failed_scenarios|length }}</div><div class="label">受限场景</div></div>
+          <div class="metric-card"><div class="value info">{{ knowledge_status.metric_fact_count }}</div><div class="label">指标事实</div></div>
+        </div>
+
+        <div class="reading-grid">
+          <section class="decision-card">
+            <h2>先看结论</h2>
+            <p>{{ business_decision.conclusion }}</p>
+            <div class="insight">{{ business_decision.recommendation }}</div>
+          </section>
+          <section class="decision-card">
+            <h2>怎么读这份报告</h2>
+            <ol class="plain-list">
+              <li>先看“项目分析”，确认这个项目为什么值得做、能用在哪、还缺什么。</li>
+              <li>再看“核心必读文献”，优先复核 A 类证据，不要从全部材料里盲找。</li>
+              <li>最后用“证据卡筛选器”按样本、方法学、参照、性能指标和证据类型筛选。</li>
+            </ol>
+          </section>
+        </div>
+
+        <section class="section-card flat">
+          <h2>证据地图</h2>
+          <table>
+            <thead><tr><th>证据域</th><th>材料数</th><th>采集状态</th><th>业务用途</th></tr></thead>
+            <tbody>
+              {% for row in evidence_map %}
+              <tr>
+                <td>{{ row.name }}</td>
+                <td>{{ row.count }}</td>
+                <td><span class="status-pill {{ row.level }}">{{ row.status }}</span></td>
+                <td>{{ row.use }}</td>
+              </tr>
               {% endfor %}
-            </ul>
-            {% endif %}
-            {% if card.parameter_facts %}
-            <div class="parameter-block">
-              <h4>参数要点</h4>
-              <ul class="fact-list">
-                {% for fact in card.parameter_facts %}
-                <li>{{ fact }}</li>
-                {% endfor %}
-              </ul>
-            </div>
-            {% endif %}
-            {% if card.gap_tasks %}
-            <div class="parameter-block">
-              <h4>补证任务</h4>
-              <ul class="fact-list">
-                {% for task in card.gap_tasks %}
-                <li>{{ task }}</li>
-                {% endfor %}
-              </ul>
-            </div>
-            {% endif %}
-            {% if source.abstract_sections_display %}
-            <div class="abstract-block">
-              <h4>结构化 Abstract</h4>
-              {% for item in source.abstract_sections_display %}
-              <p><b>{{ item.label }}</b>：{{ item.text }}</p>
+            </tbody>
+          </table>
+        </section>
+
+        <section class="section-card flat">
+          <h2>当前不能直接下结论的事项</h2>
+          <ul class="fact-list">
+            {% for item in business_decision.cannot_conclude %}
+            <li>{{ item }}</li>
+            {% endfor %}
+          </ul>
+        </section>
+
+        <section class="section-card flat">
+          <h2>补证任务</h2>
+          <table class="gap-table">
+            <thead><tr><th>证据缺口</th><th>当前依据</th><th>还缺什么</th><th>影响</th><th>责任角色</th><th>验收口径</th></tr></thead>
+            <tbody>
+              {% for row in gap_rows %}
+              <tr>
+                <td>{{ row.gap }}</td>
+                <td>{{ row.current_basis }}</td>
+                <td>{{ row.missing_evidence }}</td>
+                <td>{{ row.impact }}</td>
+                <td>{{ row.owner }}</td>
+                <td>{{ row.acceptance }}</td>
+              </tr>
               {% endfor %}
-              {% if source.raw_fields.get("keywords") %}
-              <p><b>Keywords</b>：{{ source.raw_fields.get("keywords")|join("；") if source.raw_fields.get("keywords") is iterable and source.raw_fields.get("keywords") is not string else source.raw_fields.get("keywords") }}</p>
-              {% endif %}
-            </div>
-            {% endif %}
-          </article>
+            </tbody>
+          </table>
+        </section>
+      </section>
+
+      <section class="tab-panel" id="tab-core">
+        <div class="section-intro">
+          <h2>核心必读文献</h2>
+          <p>这里优先放 A 类证据。它们通常带有性能参数、全文/摘要追溯、注册/标准/竞品价值或可直接支撑研发判断。</p>
+        </div>
+        <div class="card-list">
+          {% for card in core_cards %}
+          {{ render_screening_card(card) }}
           {% endfor %}
-        {% else %}
-          <div class="empty-state danger">当前没有证据卡。必须先形成真实材料并生成证据卡，才能支撑立项判断。</div>
-        {% endif %}
+          {% if not core_cards %}
+          <div class="empty-state danger">当前没有可进入核心必读的证据卡。</div>
+          {% endif %}
         </div>
-      </div>
-    </section>
+      </section>
 
-    <section class="tab-panel" id="tab-literature-search">
-      <div class="section-card">
-        <h2>文献证据概览</h2>
-        <table>
-          <thead>
-            <tr><th>来源</th><th>材料数</th><th>状态说明</th></tr>
-          </thead>
-          <tbody>
-            <tr><td>PubMed</td><td>{{ pubmed_materials|length }}</td><td>{{ scenario_map.get("pubmed_literature", {}).get("last_message") or "待补充检索结果" }}</td></tr>
-            <tr><td>PMC</td><td>{{ pmc_materials|length }}</td><td>{{ scenario_map.get("pmc_fulltext", {}).get("last_message") or "待补充全文结果" }}</td></tr>
-            <tr><td>OpenAlex</td><td>{{ openalex_materials|length }}</td><td>{{ scenario_map.get("openalex_literature", {}).get("last_message") or "待补充 OpenAlex 检索结果" }}</td></tr>
-            <tr><td>中文期刊 / 其他文献</td><td>{{ other_literature_materials|length }}</td><td>用于补充中文临床应用、指南解读和实验室管理证据。</td></tr>
-          </tbody>
-        </table>
-      </div>
-
-      {% if metric_facts %}
-      <div class="section-card">
-        <h2>指标事实</h2>
-        <table>
-          <thead>
-            <tr><th>指标</th><th>数值</th><th>材料ID</th><th>证据卡ID</th><th>原文线索</th></tr>
-          </thead>
-          <tbody>
-            {% for fact in metric_facts %}
-            <tr>
-              <td>{{ fact.metric_type }}</td>
-              <td>{{ fact.value }}</td>
-              <td>{{ fact.material_id }}</td>
-              <td>{{ fact.evidence_card_id }}</td>
-              <td>{{ fact.excerpt }}</td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-      {% endif %}
-
-      <div class="section-card">
-        <h2>文献清单</h2>
-        <div class="search-toolbar" data-controls-for="literature-list">
-          <input class="search-input" type="search" placeholder="按标题、期刊、摘要、PMID、DOI 检索">
-          <select class="sort-select" aria-label="按时间排序">
-            <option value="date-desc">时间倒序</option>
-            <option value="date-asc">时间正序</option>
-          </select>
-          <button class="search-button" type="button">搜索</button>
+      <section class="tab-panel" id="tab-screening">
+        <div class="section-intro">
+          <h2>证据卡筛选器</h2>
+          <p>按左侧标签组合筛选。多个维度同时选择时，只显示同时满足条件的证据卡。</p>
         </div>
-        <div id="literature-list" class="record-list">
-        {% if literature_materials %}
-          {% for material in literature_materials %}
-          <article class="record filter-card" data-date="{{ material.publication_sort_date }}" data-search="{{ material.title }} {{ material.source_scenario_zh }} {{ material.journal }} {{ material.pmid }} {{ material.pmcid }} {{ material.doi }} {{ material.structured_summary }}">
-            <div class="card-header">
-              <h3>
-                {% if material.display_url %}
-                <a href="{{ material.display_url }}" target="_blank" rel="noopener noreferrer">{{ material.title }}</a>
-                {% else %}
-                {{ material.title }}
-                {% endif %}
-              </h3>
-              <span class="tag info">{{ material.source_scenario_zh }}</span>
-              <span class="tag">{{ material.publication_date_display or material.display_year or "-" }}</span>
-            </div>
-            <div class="field-grid">
-              {% if material.journal %}<div><b>期刊/来源</b><span>{{ material.journal }}</span></div>{% endif %}
-              {% if material.pmid %}<div><b>PMID</b><span>{{ material.pmid }}</span></div>{% endif %}
-              {% if material.pmcid %}<div><b>PMCID</b><span>{{ material.pmcid }}</span></div>{% endif %}
-              {% if material.doi %}<div><b>DOI</b><span>{{ material.doi }}</span></div>{% endif %}
-              <div><b>全文状态</b><span>{{ material.download_status_zh }}</span></div>
-            </div>
-            {% if material.abstract_sections_display %}
-            <div class="abstract-block">
-              <h4>结构化 Abstract</h4>
-              {% for item in material.abstract_sections_display %}
-              <p><b>{{ item.label }}</b>：{{ item.text }}</p>
-              {% endfor %}
-              {% if material.raw_fields.get("keywords") %}
-              <p><b>Keywords</b>：{{ material.raw_fields.get("keywords")|join("；") if material.raw_fields.get("keywords") is iterable and material.raw_fields.get("keywords") is not string else material.raw_fields.get("keywords") }}</p>
-              {% endif %}
-            </div>
-            {% else %}
-            <p>{{ material.structured_summary or "已采集题录线索，需复核后形成可引用结论。" }}</p>
-            {% if material.parameter_items %}
-            <div class="parameter-block">
-              <h4>参数要点</h4>
-              <ul class="fact-list">
-                {% for parameter in material.parameter_items %}
-                <li>{{ parameter.label }}：{{ parameter.value }}</li>
-                {% endfor %}
-              </ul>
-            </div>
-            {% endif %}
-            {% endif %}
-          </article>
+        <div id="screening-card-list" class="card-list">
+          {% for card in screening_cards %}
+          {{ render_screening_card(card) }}
           {% endfor %}
-        {% else %}
-          <div class="empty-state danger">当前未形成文献材料。应优先修复 PubMed / PMC 检索失败，并补充中文文献来源。</div>
-        {% endif %}
+          {% if not screening_cards %}
+          <div class="empty-state danger">当前没有证据卡。必须先形成真实材料并生成证据卡，才能支撑项目判断。</div>
+          {% endif %}
         </div>
-      </div>
-    </section>
-
-    <section class="tab-panel" id="tab-registration">
-      <div class="section-card">
-        <h2>竞品与注册概览</h2>
-        <table>
-          <thead>
-            <tr><th>模块</th><th>材料数</th><th>业务用途</th></tr>
-          </thead>
-          <tbody>
-            <tr><td>法规 / 指导原则</td><td>{{ regulatory_materials|length }}</td><td>确认注册路径、性能评价和临床评价要求。</td></tr>
-            <tr><td>NMPA 竞品 / 同类产品</td><td>{{ competitor_materials|length }}</td><td>确认同类注册参照、方法学、样本类型和预期用途。</td></tr>
-            <tr><td>现行标准</td><td>{{ standard_materials|length }}</td><td>确认性能验证、安全要求、样本处理和质量体系约束。</td></tr>
-            <tr><td>专利</td><td>{{ patent_materials|length }}</td><td>识别知识产权风险、可绕开空间和研发自由实施风险。</td></tr>
-          </tbody>
-        </table>
-      </div>
-
-      <div class="section-card">
-        <h2>竞品与注册材料</h2>
-        <div class="search-toolbar" data-controls-for="registration-list">
-          <input class="search-input" type="search" placeholder="按产品、注册人、法规、标准、专利检索">
-          <select class="sort-select" aria-label="按时间排序">
-            <option value="date-desc">时间倒序</option>
-            <option value="date-asc">时间正序</option>
-          </select>
-          <button class="search-button" type="button">搜索</button>
-        </div>
-        <div id="registration-list" class="record-list">
-        {% if registration_materials %}
-          {% for material in registration_materials %}
-          <article class="record filter-card" data-date="{{ material.publication_sort_date or material.raw_fields.get('approval_date', '') }}" data-search="{{ material.title }} {{ material.source_scenario_zh }} {{ material.material_type_zh }} {{ material.raw_fields.get('registrant', '') }} {{ material.raw_fields.get('methodology', '') }} {{ material.structured_summary }}">
-            <div class="card-header">
-              <h3>
-                {% if material.display_url %}
-                <a href="{{ material.display_url }}" target="_blank" rel="noopener noreferrer">{{ material.title }}</a>
-                {% else %}
-                {{ material.title }}
-                {% endif %}
-              </h3>
-              <span class="tag info">{{ material.source_scenario_zh }}</span>
-              <span class="tag">{{ material.material_type_zh }}</span>
-            </div>
-            <div class="field-grid">
-              {% if material.raw_fields.get("registration_certificate_number") %}<div><b>注册证号</b><span>{{ material.raw_fields.get("registration_certificate_number") }}</span></div>{% endif %}
-              {% if material.raw_fields.get("registrant") %}<div><b>注册人/机构</b><span>{{ material.raw_fields.get("registrant") }}</span></div>{% endif %}
-              {% if material.raw_fields.get("methodology") %}<div><b>方法学</b><span>{{ material.raw_fields.get("methodology") }}</span></div>{% endif %}
-              {% if material.raw_fields.get("sample_type") %}<div><b>样本类型</b><span>{{ material.raw_fields.get("sample_type") }}</span></div>{% endif %}
-              {% if material.raw_fields.get("approval_date") %}<div><b>批准日期</b><span>{{ material.raw_fields.get("approval_date") }}</span></div>{% endif %}
-              {% if material.raw_fields.get("publication_number") %}<div><b>公开/专利号</b><span>{{ material.raw_fields.get("publication_number") }}</span></div>{% endif %}
-              {% if material.doi %}<div><b>DOI</b><span>{{ material.doi }}</span></div>{% endif %}
-              <div><b>原文状态</b><span>{{ material.download_status_zh }}</span></div>
-            </div>
-            <p>{{ material.structured_summary or material.raw_fields.get("scope") or material.raw_fields.get("abstract") or material.raw_fields.get("basic_info_text") or "已形成材料线索，需业务复核后用于注册、竞品或专利判断。" }}</p>
-            {% if material.parameter_items %}
-            <div class="parameter-block">
-              <h4>参数要点</h4>
-              <ul class="fact-list">
-                {% for parameter in material.parameter_items %}
-                <li>{{ parameter.label }}：{{ parameter.value }}</li>
-                {% endfor %}
-              </ul>
-            </div>
-            {% endif %}
-          </article>
-          {% endfor %}
-        {% else %}
-          <div class="empty-state danger">当前未形成竞品、注册、标准或专利材料。</div>
-        {% endif %}
-        </div>
-      </div>
-    </section>
-
-    <section class="tab-panel" id="tab-gap-actions">
-      <div class="section-card">
-        <h2>缺口与任务</h2>
-        <p class="muted">本页用于判断现有材料还缺哪些业务证据，不用于记录开发排错任务。</p>
-        <table class="gap-table">
-          <thead>
-            <tr><th>证据缺口</th><th>当前依据</th><th>还缺什么</th><th>影响</th><th>责任角色</th><th>验收口径</th></tr>
-          </thead>
-          <tbody>
-            {% for row in gap_rows %}
-            <tr>
-              <td>{{ row.gap }}</td>
-              <td>{{ row.current_basis }}</td>
-              <td>{{ row.missing_evidence }}</td>
-              <td>{{ row.impact }}</td>
-              <td>{{ row.owner }}</td>
-              <td>{{ row.acceptance }}</td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </section>
-
-    <section class="tab-panel" id="tab-ledger">
-      <div class="section-card">
-        <h2>材料台账</h2>
-        <table>
-          <thead>
-            <tr><th>材料ID</th><th>类型</th><th>来源</th><th>标题</th><th>下载/抽取状态</th><th>追溯路径</th></tr>
-          </thead>
-          <tbody>
-            {% for material in materials %}
-            <tr>
-              <td>{{ material.material_id }}</td>
-              <td>{{ material.material_type_zh }}</td>
-              <td>{{ material.source_scenario_zh }}</td>
-              <td>
-                {% if material.display_url %}
-                <a href="{{ material.display_url }}" target="_blank" rel="noopener noreferrer">{{ material.title }}</a>
-                {% else %}
-                {{ material.title }}
-                {% endif %}
-              </td>
-              <td>{{ material.download_status_zh }} / {{ material.extracted_text_status or "-" }}</td>
-              <td>{{ material.local_path or material.extracted_text_path or "-" }}</td>
-            </tr>
-            {% endfor %}
-            {% if not materials %}
-            <tr><td colspan="6">当前没有材料台账记录。</td></tr>
-            {% endif %}
-          </tbody>
-        </table>
-      </div>
-      <div class="section-card">
-        <h2>报告边界</h2>
-        <p>本报告为自动生成的立项调研综合草案。只有在核心来源采集完成、证据卡完成审阅、补证任务关闭后，才可作为正式立项评审材料。</p>
-      </div>
-    </section>
+      </section>
+    </div>
   </div>
 </main>
 
 <script>
-  document.querySelectorAll(".tab-button").forEach((button) => {
+  document.querySelectorAll(".tab").forEach((button) => {
     button.addEventListener("click", () => {
       const target = button.getAttribute("data-tab-target");
-      document.querySelectorAll(".tab-button").forEach((item) => item.classList.remove("active"));
+      document.querySelectorAll(".tab").forEach((item) => item.classList.remove("active"));
       document.querySelectorAll(".tab-panel").forEach((item) => item.classList.remove("active"));
       button.classList.add("active");
       document.getElementById(target).classList.add("active");
+      updateVisibleCount();
     });
   });
+
+  const activeFilters = {};
+  const searchInput = document.getElementById("global-card-search");
 
   function normalizeText(value) {
     return (value || "").toString().toLowerCase().replace(/\s+/g, " ").trim();
   }
 
-  function dateValue(card) {
-    const raw = card.getAttribute("data-date") || "";
-    const match = raw.match(/\d{4}(?:-\d{1,2})?(?:-\d{1,2})?/);
-    if (!match) return 0;
-    const normalized = match[0].split("-").map((part) => part.padStart(2, "0")).join("-");
-    const yearOnly = /^\d{4}$/.test(match[0]) ? `${match[0]}-01-01` : normalized;
-    const time = Date.parse(yearOnly);
-    return Number.isNaN(time) ? 0 : time;
+  function cardMatchesFilter(card, key, values) {
+    if (!values || values.size === 0) return true;
+    const haystack = normalizeText(card.getAttribute(`data-${key}`));
+    return Array.from(values).some((value) => haystack.includes(normalizeText(value)));
   }
 
-  function applyControls(toolbar) {
-    const target = document.getElementById(toolbar.getAttribute("data-controls-for"));
-    if (!target) return;
-    const input = toolbar.querySelector(".search-input");
-    const select = toolbar.querySelector(".sort-select");
-    const query = normalizeText(input ? input.value : "");
-    const cards = Array.from(target.querySelectorAll(".filter-card"));
+  function updateVisibleCount() {
+    const activePanel = document.querySelector(".tab-panel.active");
+    const cards = activePanel ? Array.from(activePanel.querySelectorAll(".filter-card")) : [];
+    const visible = cards.filter((card) => !card.hidden).length;
+    const counter = document.getElementById("visible-card-count");
+    if (counter) counter.textContent = cards.length ? visible : {{ screening_summary.total }};
+  }
 
-    cards.forEach((card) => {
-      const haystack = normalizeText(card.getAttribute("data-search") + " " + card.innerText);
-      card.hidden = query && !haystack.includes(query);
+  function applyScreeningFilters() {
+    const query = normalizeText(searchInput ? searchInput.value : "");
+    document.querySelectorAll(".filter-card").forEach((card) => {
+      const textMatch = !query || normalizeText(card.getAttribute("data-text") + " " + card.innerText).includes(query);
+      const filterMatch = Object.entries(activeFilters).every(([key, values]) => cardMatchesFilter(card, key, values));
+      card.hidden = !(textMatch && filterMatch);
     });
-
-    const direction = select ? select.value : "date-desc";
-    cards
-      .sort((a, b) => direction === "date-asc" ? dateValue(a) - dateValue(b) : dateValue(b) - dateValue(a))
-      .forEach((card) => target.appendChild(card));
+    updateVisibleCount();
   }
 
-  document.querySelectorAll(".search-toolbar").forEach((toolbar) => {
-    const button = toolbar.querySelector(".search-button");
-    const input = toolbar.querySelector(".search-input");
-    const select = toolbar.querySelector(".sort-select");
-    if (button) button.addEventListener("click", () => applyControls(toolbar));
-    if (select) select.addEventListener("change", () => applyControls(toolbar));
-    if (input) {
-      input.addEventListener("keydown", (event) => {
-        if (event.key === "Enter") applyControls(toolbar);
-      });
-    }
-    applyControls(toolbar);
+  document.querySelectorAll(".chip").forEach((chip) => {
+    chip.addEventListener("click", () => {
+      const key = chip.getAttribute("data-filter-key");
+      const value = chip.getAttribute("data-filter-value");
+      activeFilters[key] = activeFilters[key] || new Set();
+      if (activeFilters[key].has(value)) {
+        activeFilters[key].delete(value);
+        chip.classList.remove("active");
+      } else {
+        activeFilters[key].add(value);
+        chip.classList.add("active");
+      }
+      applyScreeningFilters();
+    });
   });
+
+  if (searchInput) {
+    searchInput.addEventListener("input", applyScreeningFilters);
+  }
+
+  updateVisibleCount();
 </script>
 </body>
 </html>
