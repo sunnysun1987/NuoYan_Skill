@@ -83,13 +83,22 @@
 
   {% if collection_alerts.level != "ok" %}
   <div class="alert-panel {{ collection_alerts.level }}">
-    <h2>采集异常与交付边界</h2>
-    {% for message in collection_alerts.critical_messages %}
-    <p>{{ message }}</p>
-    {% endfor %}
-    {% for message in collection_alerts.warning_messages %}
-    <p>{{ message }}</p>
-    {% endfor %}
+    <h2>资料缺口与人工处理</h2>
+    <p class="muted">以下内容表示当前报告仍有资料缺口。请按责任角色补充或复核后，再作为正式立项判断依据。</p>
+    <div class="gap-card-grid">
+      {% for row in collection_gap_rows %}
+      <article class="gap-card">
+        <div class="gap-card-head">
+          <span class="status-pill danger">{{ row.status }}</span>
+          <span class="owner-pill">{{ row.owner }}</span>
+        </div>
+        <h3>{{ row.source }}</h3>
+        <p><b>缺口</b>：{{ row.missing }}</p>
+        <p><b>影响</b>：{{ row.impact }}</p>
+        <p><b>处理建议</b>：{{ row.action }}</p>
+      </article>
+      {% endfor %}
+    </div>
   </div>
   {% endif %}
 
@@ -100,36 +109,7 @@
     <button class="tab" type="button" data-tab-target="tab-screening">证据卡筛选器</button>
   </nav>
 
-  <div class="screening-layout">
-    <aside class="filters" aria-label="证据筛选">
-      <div class="filter-head">
-        <div class="filter-title">研发筛选</div>
-        <div class="filter-count"><span id="visible-card-count">{{ screening_summary.total }}</span> / {{ screening_summary.total }}</div>
-      </div>
-      <input id="global-card-search" class="filter-search" type="search" placeholder="搜索标题、摘要、平台、指标">
-
-      <div class="filter-group">
-        <div class="filter-title">项目分析目录</div>
-        <div class="toc-list">
-          {% for section in project_analysis_sections %}
-          <a href="#{{ section.id }}">{{ loop.index }}. {{ section.title }}</a>
-          {% endfor %}
-        </div>
-      </div>
-
-      {% for group in filter_groups %}
-      <div class="filter-group" data-filter-group="{{ group.key }}">
-        <div class="filter-title">{{ group.label }}</div>
-        <div class="chip-row">
-          {% for option in group.options %}
-          <button class="chip" type="button" data-filter-key="{{ group.key }}" data-filter-value="{{ option.value }}">{{ option.value }} <span>{{ option.count }}</span></button>
-          {% endfor %}
-        </div>
-      </div>
-      {% endfor %}
-    </aside>
-
-    <div class="workspace">
+  <div class="workspace">
       <section class="tab-panel active" id="tab-analysis">
         <div class="analysis-layout">
           <aside class="analysis-toc-panel">
@@ -247,20 +227,41 @@
       </section>
 
       <section class="tab-panel" id="tab-screening">
-        <div class="section-intro">
-          <h2>证据卡筛选器</h2>
-          <p>按左侧标签组合筛选。多个维度同时选择时，只显示同时满足条件的证据卡。</p>
-        </div>
-        <div id="screening-card-list" class="card-list">
-          {% for card in screening_cards %}
-          {{ render_screening_card(card) }}
-          {% endfor %}
-          {% if not screening_cards %}
-          <div class="empty-state danger">当前没有证据卡。必须先形成真实材料并生成证据卡，才能支撑项目判断。</div>
-          {% endif %}
+        <div class="screening-workbench">
+          <aside class="filters" aria-label="证据筛选">
+            <div class="filter-head">
+              <div class="filter-title">证据筛选</div>
+              <div class="filter-count"><span id="visible-card-count">{{ screening_summary.total }}</span> / {{ screening_summary.total }}</div>
+            </div>
+            <input id="global-card-search" class="filter-search" type="search" placeholder="搜索标题、摘要、平台、指标">
+
+            {% for group in filter_groups %}
+            <div class="filter-group" data-filter-group="{{ group.key }}">
+              <div class="filter-title">{{ group.label }}</div>
+              <div class="chip-row">
+                {% for option in group.options %}
+                <button class="chip" type="button" data-filter-key="{{ group.key }}" data-filter-value="{{ option.value }}">{{ option.value }} <span>{{ option.count }}</span></button>
+                {% endfor %}
+              </div>
+            </div>
+            {% endfor %}
+          </aside>
+          <div class="screening-results">
+            <div class="section-intro">
+              <h2>证据卡筛选器</h2>
+              <p>按左侧标签组合筛选。多个维度同时选择时，只显示同时满足条件的证据卡。</p>
+            </div>
+            <div id="screening-card-list" class="card-list">
+              {% for card in screening_cards %}
+              {{ render_screening_card(card) }}
+              {% endfor %}
+              {% if not screening_cards %}
+              <div class="empty-state danger">当前没有证据卡。必须先形成真实材料并生成证据卡，才能支撑项目判断。</div>
+              {% endif %}
+            </div>
+          </div>
         </div>
       </section>
-    </div>
   </div>
 </main>
 

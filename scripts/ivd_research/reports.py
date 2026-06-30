@@ -6,7 +6,7 @@ from datetime import date
 from jinja2 import Template
 
 from .jsonl import append_jsonl, read_json, read_jsonl
-from .quality import build_collection_alerts
+from .quality import OPTIONAL_NOT_STARTED_SCENARIOS, build_collection_alerts
 from .status import now_iso
 from .translation import extract_parameters
 
@@ -513,6 +513,113 @@ def normalize_scenario_statuses(scenario_statuses: list[dict]) -> list[dict]:
             row["next_action"] = ""
         normalized.append(row)
     return normalized
+
+
+def _business_gap_for_scenario(scenario: dict[str, Any]) -> dict[str, str]:
+    scenario_id = str(scenario.get("scenario_id") or "")
+    label = str(scenario.get("label_zh") or scenario_id or "未命名来源")
+    status = str(scenario.get("status") or "")
+    manual_labels = {
+        "collection_failed": "未采集到",
+        "needs_login": "需要登录后补采",
+        "permission_required": "需要权限后补采",
+        "no_results": "未发现匹配材料",
+        "not_started": "尚未采集",
+        "download_failed": "原文未取得",
+        "parse_failed": "材料需人工整理",
+    }
+    type_label = manual_labels.get(status, "需人工确认")
+    defaults = {
+        "missing": "该来源的材料尚未形成可复核证据。",
+        "impact": "会影响报告完整性和正式立项判断。",
+        "action": "请业务人员补充合法来源文件、链接或完成来源复核后再重新生成报告。",
+        "owner": "项目 / 研发",
+    }
+    mapping = {
+        "nmpa_competitor": {
+            "missing": "NMPA 官方同类产品注册证字段未完整采集。",
+            "impact": "影响国内竞品格局、注册参照、样本类型、方法学和预期用途判断。",
+            "action": "注册或产品人员人工核验 NMPA 官方数据库，补齐注册证编号、注册人、有效期、样本类型、方法学、预期用途和说明书链接。",
+            "owner": "注册 / 产品",
+        },
+        "patenthub_patents": {
+            "missing": "PatentHub 专利详情和/或全文尚未完成采集。",
+            "impact": "影响自由实施、核心引物/探针/组合方案专利风险和可绕开空间判断。",
+            "action": "知识产权或研发人员登录合法专利数据库，补齐高相关专利全文、权利要求、法律状态、地域和到期日。",
+            "owner": "知识产权 / 研发",
+        },
+        "cmde_regulatory": {
+            "missing": "CMDE 指导原则、审评报告或征求意见材料未形成有效命中。",
+            "impact": "影响注册路径、临床评价、性能评价和申报资料要求判断。",
+            "action": "注册人员按产品类别和预期用途人工复核 CMDE/NMPA 文件，必要时补充可类比指导原则。",
+            "owner": "注册",
+        },
+        "standards_current": {
+            "missing": "现行标准号、标准名称或适用条款未完整确认。",
+            "impact": "影响性能验证、样本处理、安全要求和质量体系约束判断。",
+            "action": "研发/质量人员补查国家标准、行业标准和团体标准，标注标准状态、适用条款和与本项目的关系。",
+            "owner": "研发 / 质量",
+        },
+        "chinese_journal": {
+            "missing": "中文期刊或中文全文材料未形成有效命中。",
+            "impact": "影响国内临床应用、实验室流程和本土医学语境判断。",
+            "action": "医学或项目人员补充中文期刊、指南解读、医院实验室资料或合法全文文件。",
+            "owner": "医学 / 项目",
+        },
+        "wanfang_literature": {
+            "missing": "中文期刊全文数据库材料未形成有效命中。",
+            "impact": "影响国内临床应用、样本处理和实验室管理证据完整性。",
+            "action": "医学或项目人员补充合法中文全文、题录或可审阅链接。",
+            "owner": "医学 / 项目",
+        },
+        "external_life_science": {
+            "missing": "外部科学数据库证据尚未启动或尚未导入。",
+            "impact": "影响机制、靶标、临床试验或公共数据库线索的补充完整性。",
+            "action": "如项目需要机制或公共数据库证据，补充运行外部科学数据库检索并导入材料管线。",
+            "owner": "研发 / 医学",
+        },
+    }
+    item = {**defaults, **mapping.get(scenario_id, {})}
+    return {
+        "source": label,
+        "status": type_label,
+        "missing": item["missing"],
+        "impact": item["impact"],
+        "action": item["action"],
+        "owner": item["owner"],
+    }
+
+
+def build_business_collection_gaps(
+    collection_alerts: dict[str, Any],
+    scenario_statuses: list[dict[str, Any]],
+) -> list[dict[str, str]]:
+    """Convert technical collection statuses into business-facing supplement tasks."""
+    relevant_statuses = {
+        "collection_failed",
+        "permission_required",
+        "needs_login",
+        "download_failed",
+        "parse_failed",
+        "no_results",
+        "not_started",
+    }
+    scenarios = [
+        item
+        for item in scenario_statuses
+        if item.get("status") in relevant_statuses
+        and item.get("scenario_id") not in OPTIONAL_NOT_STARTED_SCENARIOS
+    ]
+    seen: set[tuple[str, str]] = set()
+    rows: list[dict[str, str]] = []
+    for scenario in scenarios:
+        row = _business_gap_for_scenario(scenario)
+        key = (row["source"], row["missing"])
+        if key in seen:
+            continue
+        seen.add(key)
+        rows.append(row)
+    return rows
 
 
 def _by_type(materials: list[dict], material_type: str) -> list[dict]:
@@ -2187,6 +2294,7 @@ def build_standard_report(task_dir: Path, output: Path | None = None) -> dict:
         evidence_cards=evidence_cards,
         scenario_statuses=scenario_statuses,
     )
+    collection_gap_rows = build_business_collection_gaps(collection_alerts, scenario_statuses)
     analysis = build_feasibility_analysis(materials, evidence_cards, scenario_statuses)
     metric_facts = list(read_jsonl(task_dir / "knowledge" / "metric_facts.jsonl"))
     source_runs = list(read_jsonl(task_dir / "data" / "source_runs.jsonl"))
@@ -2388,6 +2496,7 @@ def build_standard_report(task_dir: Path, output: Path | None = None) -> dict:
         scenario_statuses=scenario_statuses,
         scenario_map=scenario_map,
         collection_alerts=collection_alerts,
+        collection_gap_rows=collection_gap_rows,
         analysis=analysis,
         business_decision=business_decision,
         evidence_map=evidence_map,
