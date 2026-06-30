@@ -2678,6 +2678,7 @@ def build_standard_report(task_dir: Path, output: Path | None = None) -> dict:
         regulatory_materials + competitor_materials + standard_materials + patent_materials
     )
     screening_cards = build_screening_cards(materials, evidence_cards, task_dir=task_dir)
+    translation_capability = translation_status(task_dir)
     core_cards = [card for card in screening_cards if card.get("priority_class") == "A"][:60]
     if not core_cards:
         core_cards = screening_cards[:30]
