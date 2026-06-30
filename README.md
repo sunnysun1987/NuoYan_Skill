@@ -1,8 +1,8 @@
-# Nuoyan_skill_V2.1
+# 诺研_skill_IVD研发项目调研
 
-Nuoyan_skill_V2.1 is a Codex skill for IVD product feasibility research. It helps an agent confirm search scope, collect regulatory, competitor, standards, patent, literature and external scientific database evidence, generate enhanced evidence cards, build an HTML research analysis report, export an Excel evidence review table, and preserve local knowledge assets.
+`诺研_skill` is a Codex skill for IVD R&D project research. It helps an agent confirm search scope, collect regulatory, competitor, standards, patent, literature and external scientific database evidence, generate enhanced evidence cards, build an HTML research analysis report, export an Excel evidence review table, and preserve local knowledge assets.
 
-The installed local skill name may remain `Nuoyan_skill_V2.0` for backward compatibility. The repository implementation is V2.1.
+Skill name policy: the skill name is fixed as `诺研_skill`. Future changes should iterate code or capability versions only; do not put version numbers in the skill name or primary title.
 
 ## Install
 
@@ -114,4 +114,4 @@ nuoyan doctor --network --json
 
 ## Release Note
 
-The installed local skill name may be `Nuoyan_skill_V2.0` for backward compatibility with existing Codex installations. For a public repository or newly packaged skill, prefer the hyphen-case name `nuoyan-skill-v2`, which matches Codex skill validation rules for portable distribution.
+The formal skill name is `诺研_skill`; the formal display title is `诺研_skill_IVD研发项目调研`. The repository name can remain `nuoyan-skill-v2` for GitHub continuity, but user-facing skill naming should not include code version numbers.

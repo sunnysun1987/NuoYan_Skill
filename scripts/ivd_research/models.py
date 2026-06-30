@@ -210,7 +210,7 @@ class SourceSite(BaseModel):
     field_map: dict[str, str] = Field(default_factory=dict)
     adapter_id: str
     restriction_notes: str = ""
-    source_origin: str = "诺研 Skill V2.1 20260630 开发说明内置信源基线"
+    source_origin: str = "诺研_skill 代码版本 V2.1 20260630 开发说明内置信源基线"
 
 
 class RecommendedAction(BaseModel):
