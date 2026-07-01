@@ -105,12 +105,13 @@
 <main>
   <header class="page-header">
     <h1>{{ report_title }}</h1>
-    <p class="meta"><span>任务ID：{{ task_id }}</span><span>生成时间：{{ generated_at }}</span><span>技能：诺研_skill</span><span>代码版本：V2.1.1</span></p>
+    <p class="meta"><span>任务ID：{{ task_id }}</span><span>生成时间：{{ generated_at }}</span><span>技能：诺研_skill</span><span>代码版本：V2.1.2</span></p>
   </header>
 
   <nav class="tabs" role="tablist" aria-label="研发筛选报告页签">
     <button class="tab active" type="button" data-tab-target="tab-analysis">项目分析</button>
     <button class="tab" type="button" data-tab-target="tab-reading">研发阅读入口</button>
+    <button class="tab" type="button" data-tab-target="tab-metrics">指标事实</button>
     <button class="tab" type="button" data-tab-target="tab-core">核心必读文献</button>
     <button class="tab" type="button" data-tab-target="tab-screening">全部证据卡</button>
     <button class="tab" type="button" data-tab-target="tab-gaps">资料缺口</button>
@@ -218,7 +219,7 @@
             <div class="label">受限场景</div>
             <p class="metric-definition">因未命中、登录、权限、站点限制或需人工复核而不能直接形成完整证据的来源场景。</p>
           </button>
-          <button class="metric-card metric-link" type="button" data-jump-tab="tab-reading" data-jump-target="metric-facts" aria-label="查看指标事实明细">
+          <button class="metric-card metric-link" type="button" data-jump-tab="tab-metrics" data-jump-target="metric-facts" aria-label="查看指标事实明细">
             <div class="metric-top"><div class="value info">{{ knowledge_status.metric_fact_count }}</div><div class="metric-arrow">查看</div></div>
             <div class="label">指标事实</div>
             <p class="metric-definition">从证据中结构化抽取的样本量、灵敏度、特异性、AUC、Ct、LoD、OR/HR 等参数事实。</p>
@@ -267,7 +268,37 @@
           </table>
         </section>
 
-        <section class="section-card flat" id="metric-facts">
+        <section class="section-card flat">
+          <h2>当前不能直接下结论的事项</h2>
+          <ul class="fact-list">
+            {% for item in business_decision.cannot_conclude %}
+            <li>{{ item }}</li>
+            {% endfor %}
+          </ul>
+        </section>
+
+        <section class="section-card flat">
+          <h2>补证任务</h2>
+          <table class="gap-table">
+            <thead><tr><th>证据缺口</th><th>当前依据</th><th>还缺什么</th><th>影响</th><th>责任角色</th><th>验收口径</th></tr></thead>
+            <tbody>
+              {% for row in gap_rows %}
+              <tr>
+                <td>{{ row.gap }}</td>
+                <td>{{ row.current_basis }}</td>
+                <td>{{ row.missing_evidence }}</td>
+                <td>{{ row.impact }}</td>
+                <td>{{ row.owner }}</td>
+                <td>{{ row.acceptance }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </section>
+      </section>
+
+      <section class="tab-panel" id="tab-metrics">
+        <section class="section-card flat metric-facts-workbench" id="metric-facts">
           <h2>指标事实</h2>
           <p class="section-note">以下为系统从材料和证据卡中抽取的参数事实，用于快速定位性能、样本量和统计结果。当前展示 {{ metric_facts|length }} / {{ metric_fact_total }} 条；正式引用前仍需回到原文或证据卡复核。</p>
           <div class="metric-filter-panel">
@@ -321,34 +352,6 @@
           {% else %}
           <div class="empty-state">当前知识资产中尚未抽取到可展示的指标事实。</div>
           {% endif %}
-        </section>
-
-        <section class="section-card flat">
-          <h2>当前不能直接下结论的事项</h2>
-          <ul class="fact-list">
-            {% for item in business_decision.cannot_conclude %}
-            <li>{{ item }}</li>
-            {% endfor %}
-          </ul>
-        </section>
-
-        <section class="section-card flat">
-          <h2>补证任务</h2>
-          <table class="gap-table">
-            <thead><tr><th>证据缺口</th><th>当前依据</th><th>还缺什么</th><th>影响</th><th>责任角色</th><th>验收口径</th></tr></thead>
-            <tbody>
-              {% for row in gap_rows %}
-              <tr>
-                <td>{{ row.gap }}</td>
-                <td>{{ row.current_basis }}</td>
-                <td>{{ row.missing_evidence }}</td>
-                <td>{{ row.impact }}</td>
-                <td>{{ row.owner }}</td>
-                <td>{{ row.acceptance }}</td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
         </section>
       </section>
 

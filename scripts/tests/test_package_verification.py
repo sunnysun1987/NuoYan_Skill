@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 import pytest
+from bs4 import BeautifulSoup
 
 from ivd_research.evidence import build_draft_evidence_card, export_evidence_card_files
 from ivd_research.jsonl import append_jsonl, write_json
@@ -113,7 +114,10 @@ def test_standard_delivery_report_has_drilldown_navigation_and_metric_definition
     assert "点击后跳转到对应章节" in html
     assert 'data-jump-tab="tab-screening"' in html
     assert 'data-jump-target="screening-card-list"' in html
+    assert 'data-tab-target="tab-metrics">指标事实' in html
+    assert 'data-jump-tab="tab-metrics" data-jump-target="metric-facts"' in html
     assert 'data-jump-target="metric-facts"' in html
+    assert 'id="tab-metrics"' in html
     assert "已写入材料库的原始资料总数" in html
     assert "从证据中结构化抽取的样本量" in html
     assert "口径：" not in html
@@ -129,6 +133,15 @@ def test_standard_delivery_report_has_drilldown_navigation_and_metric_definition
     assert "相关内容原文" in html
     assert "先看结论" in html
     assert "研发定位" in html
+    assert html.index('id="tab-metrics"') < html.index('id="tab-core"')
+
+    soup = BeautifulSoup(html, "html.parser")
+    reading_panel = soup.select_one("#tab-reading")
+    metrics_panel = soup.select_one("#tab-metrics")
+    assert reading_panel is not None
+    assert metrics_panel is not None
+    assert reading_panel.select_one("#metric-facts") is None
+    assert metrics_panel.select_one("#metric-facts") is not None
 
 
 def test_verify_package_requires_fallback_for_failed_formal_scenarios(tmp_path: Path):
