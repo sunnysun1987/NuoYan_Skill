@@ -1149,8 +1149,7 @@ def build_section_evidence_rows(
     *,
     materials: list[dict],
     screening_cards: list[dict[str, Any]],
-    limit: int = 6,
-) -> list[dict[str, str]]:
+) -> list[dict[str, Any]]:
     terms = SECTION_EVIDENCE_TERMS.get(section_title, [])
     materials_by_id = {item.get("material_id"): item for item in materials}
     rows: list[dict[str, str]] = []
@@ -1180,26 +1179,7 @@ def build_section_evidence_rows(
             }
         )
     rows.sort(key=lambda row: (-int(row.get("score") or 0), row.get("material_title", "")))
-    if rows:
-        return rows[:limit]
-    fallback = []
-    for card in screening_cards[:limit]:
-        material = materials_by_id.get(card.get("material_id"), {})
-        if not material:
-            continue
-        fallback.append(
-            {
-                "score": 0,
-                "material_title": material_display_title(material, card.get("title", "")),
-                "material_href": material_href(material),
-                "excerpt": _short_text(card.get("summary") or material.get("structured_summary") or "", 260),
-                "evidence_card_id": card.get("card_id", ""),
-                "evidence_card_title": card.get("display_title") or card.get("title") or card.get("card_id", ""),
-                "evidence_card_anchor": evidence_card_anchor(card.get("card_id", "")),
-                "priority_label": card.get("priority_label", ""),
-            }
-        )
-    return fallback
+    return rows
 
 
 def attach_analysis_evidence_rows(

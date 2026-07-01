@@ -105,7 +105,7 @@
 <main>
   <header class="page-header">
     <h1>{{ report_title }}</h1>
-    <p class="meta"><span>任务ID：{{ task_id }}</span><span>生成时间：{{ generated_at }}</span><span>技能：诺研_skill</span><span>代码版本：V2.1</span></p>
+    <p class="meta"><span>任务ID：{{ task_id }}</span><span>生成时间：{{ generated_at }}</span><span>技能：诺研_skill</span><span>代码版本：V2.1.1</span></p>
   </header>
 
   <nav class="tabs" role="tablist" aria-label="研发筛选报告页签">
@@ -148,12 +148,25 @@
                 <h3>当前依据</h3>
                 <p>{{ section.evidence }}</p>
                 {% if section.evidence_rows %}
-                <div class="analysis-evidence-table-wrap">
+                <div class="analysis-evidence-panel" data-page-size="8">
+                  <div class="analysis-evidence-toolbar">
+                    <div>
+                      <strong>依据清单</strong>
+                      <span>{{ section.evidence_rows|length }} 条可追溯材料</span>
+                    </div>
+                    <div class="analysis-pager">
+                      <button class="pager-button" type="button" data-page-action="prev" aria-label="上一页依据">上一页</button>
+                      <span class="page-status" data-page-status>1 / 1</span>
+                      <button class="pager-button" type="button" data-page-action="next" aria-label="下一页依据">下一页</button>
+                    </div>
+                  </div>
+                  <div class="analysis-page-range" data-page-range></div>
+                  <div class="analysis-evidence-table-wrap">
                   <table class="analysis-evidence-table">
                     <thead><tr><th>原文标题</th><th>相关内容原文</th><th>证据卡</th></tr></thead>
                     <tbody>
                       {% for row in section.evidence_rows %}
-                      <tr>
+                      <tr data-page-row>
                         <td>
                           {% if row.material_href %}
                           <a href="{{ row.material_href }}" target="_blank" rel="noopener noreferrer">{{ row.material_title }}</a>
@@ -167,7 +180,10 @@
                       {% endfor %}
                     </tbody>
                   </table>
+                  </div>
                 </div>
+                {% else %}
+                <div class="empty-state compact">当前章节尚未匹配到可直接引用的依据清单，请结合资料缺口和全部证据卡继续人工复核。</div>
                 {% endif %}
               </div>
               <div class="analysis-block gap">
@@ -502,6 +518,46 @@
     input.addEventListener("input", applyMetricFilters);
   });
 
+  function initAnalysisEvidencePagination() {
+    document.querySelectorAll(".analysis-evidence-panel").forEach((panel) => {
+      const rows = Array.from(panel.querySelectorAll("[data-page-row]"));
+      const pageSize = Math.max(1, Number.parseInt(panel.getAttribute("data-page-size") || "8", 10));
+      const status = panel.querySelector("[data-page-status]");
+      const range = panel.querySelector("[data-page-range]");
+      const prev = panel.querySelector('[data-page-action="prev"]');
+      const next = panel.querySelector('[data-page-action="next"]');
+      if (!rows.length) return;
+      let page = 0;
+      const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
+
+      function renderPage() {
+        const start = page * pageSize;
+        const end = Math.min(start + pageSize, rows.length);
+        rows.forEach((row, index) => {
+          row.hidden = index < start || index >= end;
+        });
+        if (status) status.textContent = `${page + 1} / ${totalPages}`;
+        if (range) range.textContent = `当前显示第 ${start + 1}-${end} 条，共 ${rows.length} 条`;
+        if (prev) prev.disabled = page === 0;
+        if (next) next.disabled = page >= totalPages - 1;
+      }
+
+      prev?.addEventListener("click", () => {
+        if (page > 0) {
+          page -= 1;
+          renderPage();
+        }
+      });
+      next?.addEventListener("click", () => {
+        if (page < totalPages - 1) {
+          page += 1;
+          renderPage();
+        }
+      });
+      renderPage();
+    });
+  }
+
   function normalizeText(value) {
     return (value || "").toString().toLowerCase().replace(/\s+/g, " ").trim();
   }
@@ -549,6 +605,7 @@
     input.addEventListener("input", () => applyPanelFilters(input.closest(".tab-panel")));
   });
 
+  initAnalysisEvidencePagination();
   updateVisibleCount();
 </script>
 </body>

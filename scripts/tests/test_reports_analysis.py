@@ -1,6 +1,7 @@
 from ivd_research.reports import (
     build_metric_fact_rows,
     build_project_analysis_sections,
+    build_section_evidence_rows,
     normalize_evidence_cards,
     normalize_materials,
 )
@@ -148,3 +149,40 @@ def test_metric_fact_rows_use_chinese_labels_and_links():
     assert row["material_title"].startswith("Diagnostic Accuracy")
     assert row["material_href"] == "https://pubmed.ncbi.nlm.nih.gov/38252443/"
     assert row["evidence_card_anchor"] == "evidence-card-EC-000001"
+
+
+def test_section_evidence_rows_are_paginated_in_ui_not_hard_limited():
+    materials = []
+    cards = []
+    for index in range(9):
+        material = _literature_material()
+        material["material_id"] = f"MAT-{index:06d}"
+        material["title"] = f"Clinical diagnostic evidence for influenza multiplex assay {index}"
+        material["raw_fields"] = {
+            **material["raw_fields"],
+            "abstract": (
+                "Clinical diagnostic evidence describes respiratory influenza multiplex assay "
+                "performance in adult patients."
+            ),
+        }
+        materials.append(material)
+        cards.append(
+            {
+                "card_id": f"EC-{index:06d}",
+                "material_id": material["material_id"],
+                "title": material["title"],
+                "display_title": material["title"],
+                "summary": "Clinical diagnostic evidence for respiratory influenza multiplex assay.",
+                "key_facts": ["临床诊断：呼吸道甲乙流多重联检"],
+                "priority_label": "A 核心必读",
+            }
+        )
+
+    rows = build_section_evidence_rows(
+        "临床意义",
+        materials=normalize_materials(materials, []),
+        screening_cards=cards,
+    )
+
+    assert len(rows) == 9
+    assert rows[0]["evidence_card_anchor"].startswith("evidence-card-EC-")
