@@ -10,7 +10,7 @@ Clone this repository into a Codex skills directory, then restart Codex so the s
 
 ```bash
 mkdir -p ~/.codex/skills
-git clone git@github.com:sunnysun1987/nuoyan-skill-v2.git ~/.codex/skills/nuoyan-skill-v2
+git clone git@github.com:sunnysun1987/NuoYan_Skill.git ~/.codex/skills/nuoyan-skill-v2
 ```
 
 If an earlier install exists but Codex does not load it, check the first lines of `~/.codex/skills/nuoyan-skill-v2/SKILL.md`. The frontmatter must include `name: nuoyan-skill-v2`; older packages that use `name: 诺研_skill` should be updated with `git pull` or reinstalled.
@@ -129,4 +129,4 @@ nuoyan doctor --network --json
 
 ## Release Note
 
-The Codex loading ID is `nuoyan-skill-v2`; the formal display title is `诺研_skill_IVD研发项目调研`. The repository name and installed folder name should remain `nuoyan-skill-v2` so Codex can validate and load the skill consistently.
+The Codex loading ID is `nuoyan-skill-v2`; the formal display title is `诺研_skill_IVD研发项目调研`. The installed folder name should remain `nuoyan-skill-v2` so Codex can validate and load the skill consistently.
