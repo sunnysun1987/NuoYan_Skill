@@ -1,8 +1,8 @@
 # 诺研_skill_IVD研发项目调研
 
-`诺研_skill` is a Codex skill for IVD R&D project research. It helps an agent confirm search scope, collect regulatory, competitor, standards, patent, literature and external scientific database evidence, generate enhanced evidence cards, build an HTML research analysis report, export an Excel evidence review table, and preserve local knowledge assets.
+`nuoyan-skill-v2` is a Codex skill for IVD R&D project research. It helps an agent confirm search scope, collect regulatory, competitor, standards, patent, literature and external scientific database evidence, generate enhanced evidence cards, build an HTML research analysis report, export an Excel evidence review table, and preserve local knowledge assets.
 
-Skill name policy: the skill name is fixed as `诺研_skill`. Future changes should iterate code or capability versions only; do not put version numbers in the skill name or primary title.
+Skill name policy: the Codex loading ID is fixed as `nuoyan-skill-v2`. Keep it lowercase, ASCII-only and hyphenated so it matches the installed folder name. The Chinese display title remains `诺研_skill_IVD研发项目调研`.
 
 ## Install
 
@@ -12,6 +12,8 @@ Clone this repository into a Codex skills directory, then restart Codex so the s
 mkdir -p ~/.codex/skills
 git clone git@github.com:sunnysun1987/nuoyan-skill-v2.git ~/.codex/skills/nuoyan-skill-v2
 ```
+
+If an earlier install exists but Codex does not load it, check the first lines of `~/.codex/skills/nuoyan-skill-v2/SKILL.md`. The frontmatter must include `name: nuoyan-skill-v2`; older packages that use `name: 诺研_skill` should be updated with `git pull` or reinstalled.
 
 For local CLI use, install the Python package in editable mode:
 
@@ -127,4 +129,4 @@ nuoyan doctor --network --json
 
 ## Release Note
 
-The formal skill name is `诺研_skill`; the formal display title is `诺研_skill_IVD研发项目调研`. The repository name can remain `nuoyan-skill-v2` for GitHub continuity, but user-facing skill naming should not include code version numbers.
+The Codex loading ID is `nuoyan-skill-v2`; the formal display title is `诺研_skill_IVD研发项目调研`. The repository name and installed folder name should remain `nuoyan-skill-v2` so Codex can validate and load the skill consistently.
