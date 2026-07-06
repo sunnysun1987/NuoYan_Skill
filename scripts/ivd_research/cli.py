@@ -25,7 +25,12 @@ from .knowledge.literature_graph import build_literature_knowledge
 from .local_import import import_local
 from .models import FailureType, Material
 from .paths import default_output_root
-from .package import build_standard_delivery, package_task, verify_package
+from .package import (
+    build_standard_delivery,
+    package_task,
+    requires_life_science_research,
+    verify_package,
+)
 from .query_plan import default_query_plan, scenario_query_plans
 from .reports import build_report
 from .review_excel import export_review, import_review
@@ -46,7 +51,10 @@ from .scenarios import (
 from .scenarios.registry import get_scenario
 from .scenarios.base import ScenarioResult
 from .site_profiles import record_site_observation, site_profile
-from .source_adapters.life_science_research_bridge import import_life_science_findings
+from .source_adapters.life_science_research_bridge import (
+    build_life_science_research_plan,
+    import_life_science_findings,
+)
 from .source_adapters.csv_literature_import import import_literature_table
 from .source_adapters.source_sites import all_source_sites, export_source_sites
 from .jsonl import append_jsonl
@@ -180,6 +188,28 @@ def _supports_kwarg(func, name: str) -> bool:
         return name in inspect.signature(func).parameters
     except (TypeError, ValueError):
         return True
+
+
+def _record_life_science_plan_if_required(task_dir: Path, state) -> dict:
+    task_payload = state.model_dump(mode="json")
+    if not requires_life_science_research(task_payload):
+        return {"required": False}
+    scenario = state.scenario_statuses.get("life_science_research")
+    if scenario and scenario.material_count > 0 and scenario.status == "completed":
+        return {"required": True, "status": "completed"}
+    plan = build_life_science_research_plan(task_payload)
+    plan_dir = task_dir / "staging" / "life_science_research"
+    plan_dir.mkdir(parents=True, exist_ok=True)
+    plan_path = plan_dir / "external_plugin_query_plan.json"
+    plan_path.write_text(json.dumps(plan, ensure_ascii=False, indent=2), encoding="utf-8")
+    if scenario is not None:
+        scenario.status = "needs_manual_review"
+        scenario.last_message = (
+            "课题涉及标志物/蛋白/机制/临床或公共科学数据库证据，"
+            "需要通过 life-science-research 插件执行外部查询并导入材料管线。"
+            f"插件查询计划已生成：{plan_path.relative_to(task_dir)}。"
+        )
+    return {"required": True, "status": "needs_manual_review", "plan_path": str(plan_path)}
 
 
 def _record_scenario_result(task_dir: Path, state, scenario: str, result) -> None:
@@ -490,6 +520,28 @@ def import_life_science_findings_command(
     emit(result, json_output)
 
 
+@app.command("life-science-plan")
+def life_science_plan_command(
+    task_id: str = typer.Option(..., "--task-id"),
+    output_root: Optional[Path] = typer.Option(None, "--output-root"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    root = output_root or default_output_root()
+    task_dir = find_task(root, task_id)
+    state = load_task(task_dir)
+    status = _record_life_science_plan_if_required(task_dir, state)
+    save_task(state)
+    emit(
+        {
+            **status,
+            "plan": build_life_science_research_plan(state.model_dump(mode="json"))
+            if status.get("required")
+            else None,
+        },
+        json_output,
+    )
+
+
 @app.command("source-sites")
 def source_sites_command(
     output: Optional[Path] = typer.Option(None, "--output"),
@@ -776,6 +828,10 @@ def run_full_pipeline_command(
                 if result.status != "completed":
                     state.scenario_statuses[scenario].failure_count += 1
                 state.scenario_statuses[scenario].last_message = result.message_zh
+        life_science_plan = _record_life_science_plan_if_required(task_dir, state)
+        save_task(state)
+    else:
+        life_science_plan = _record_life_science_plan_if_required(task_dir, state)
         save_task(state)
 
     evidence_result = generate_draft_evidence_cards(task_dir)
@@ -788,6 +844,7 @@ def run_full_pipeline_command(
     emit(
         {
             "collection": collection_results,
+            "life_science_plan": life_science_plan,
             "network_preflight": network_status,
             "evidence": evidence_result,
             "knowledge": knowledge_result,
@@ -898,6 +955,10 @@ def run_delivery_pipeline_command(
                 state.scenario_statuses[deferred].last_message = (
                     "本期交付暂缓该信源；报告中必须明确标注，不能视为已完成采集。"
                 )
+        life_science_plan = _record_life_science_plan_if_required(task_dir, state)
+        save_task(state)
+    else:
+        life_science_plan = _record_life_science_plan_if_required(task_dir, state)
         save_task(state)
 
     evidence_result = generate_draft_evidence_cards(task_dir)
@@ -911,6 +972,7 @@ def run_delivery_pipeline_command(
     emit(
         {
             "collection": collection_results,
+            "life_science_plan": life_science_plan,
             "network_preflight": network_status,
             "evidence": evidence_result,
             "knowledge": knowledge_result,

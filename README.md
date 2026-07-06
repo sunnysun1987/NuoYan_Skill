@@ -86,6 +86,7 @@ Formal collection should cover the evidence map:
 V2.1 adds a standard source-site baseline and lightweight local knowledge assets:
 
 - `nuoyan source-sites --json` exports built-in source configuration.
+- `nuoyan life-science-plan --task-id <task_id> --json` writes the required external plugin query plan when a topic involves biomarkers, proteins, genes, pathways, clinical studies, genetic evidence or public scientific databases.
 - `nuoyan import-life-science-findings --task-id <task_id> --findings-json-file external_findings.json --json` imports plugin findings into the material pipeline.
 - `nuoyan import-literature-table --task-id <task_id> --path literature.xlsx --json` imports local CSV/XLSX literature lists.
 - `nuoyan build-knowledge --task-id <task_id> --json` generates metric facts, topic index, dedup index and a literature graph.
@@ -112,6 +113,10 @@ nuoyan verify-package --task-id <task_id> --json
 Key fields include `search_profile_ready`, `scenario_coverage_ready`, `fallback_ready`, `network_ready`, `v21_assets_ready`, `final_review_ready` and `business_ready`.
 
 `business_ready=true` requires more than generated files. The package must have confirmed search scope, complete source coverage or documented fallback, V2.1 source-site and knowledge assets, reviewed evidence cards, and a valid standard delivery folder.
+
+For biomarker or disease-mechanism projects, `business_ready=true` also requires life-science-research plugin coverage. The default gate requires at least 12 imported plugin materials, 5 source databases and 4 evidence lanes. Missing or shallow plugin imports keep `scenario_coverage_ready=false` and the HTML evidence map shows the external scientific database status separately.
+
+V2.1.3 fixes the plugin bridge so source database names such as `EFO/OLS` are stored with safe filenames, imported plugin findings update the `life_science_research` scenario status, and full/delivery pipelines generate a staged plugin query plan instead of silently skipping the external scientific database step.
 
 ## Tests
 

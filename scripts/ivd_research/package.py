@@ -1,5 +1,6 @@
 import hashlib
 import json
+import re
 import shutil
 import zipfile
 from pathlib import Path
@@ -23,6 +24,46 @@ FORMAL_SCENARIOS = [
     "wiley_alz",
     "yiigle_fulltext",
 ]
+
+LIFE_SCIENCE_RESEARCH_SCENARIO = "life_science_research"
+LIFE_SCIENCE_TRIGGER_TERMS = [
+    "标志物",
+    "生物标志物",
+    "蛋白",
+    "基因",
+    "靶标",
+    "机制",
+    "通路",
+    "网络",
+    "临床试验",
+    "遗传",
+    "变异",
+    "公共数据库",
+    "biomarker",
+    "protein",
+    "gene",
+    "target",
+    "pathway",
+    "mechanism",
+    "clinical trial",
+    "genetic",
+    "variant",
+    "阿尔茨海默",
+    "alzheimer",
+    "p-tau",
+    "ptau",
+    "aβ",
+    "abeta",
+    "amyloid",
+    "tau",
+    "nfl",
+]
+LIFE_SCIENCE_TRIGGER_PATTERNS = [
+    r"\bad\b",
+]
+MIN_LIFE_SCIENCE_MATERIALS = 12
+MIN_LIFE_SCIENCE_DATABASES = 5
+MIN_LIFE_SCIENCE_LANES = 4
 
 NETWORK_SENSITIVE_SCENARIOS = [
     "pubmed_literature",
@@ -392,6 +433,111 @@ def network_warnings(network_preflight: dict | None) -> list[str]:
     return warnings
 
 
+def requires_life_science_research(task: dict) -> bool:
+    confirmations = task.get("confirmations") or {}
+    values = [
+        task.get("topic", ""),
+        confirmations.get("primary_query", ""),
+        confirmations.get("english_keywords", ""),
+        confirmations.get("chinese_synonyms", ""),
+        confirmations.get("intended_use", ""),
+        confirmations.get("sample_type", ""),
+        confirmations.get("methodology", ""),
+    ]
+    haystack = " ".join(str(value or "") for value in values).lower()
+    return any(term.lower() in haystack for term in LIFE_SCIENCE_TRIGGER_TERMS) or any(
+        re.search(pattern, haystack) for pattern in LIFE_SCIENCE_TRIGGER_PATTERNS
+    )
+
+
+def life_science_coverage(task_dir: Path, task: dict) -> dict:
+    materials = [
+        row
+        for row in read_jsonl(task_dir / "data" / "materials.jsonl")
+        if row.get("source_scenario") == LIFE_SCIENCE_RESEARCH_SCENARIO
+        or row.get("source_site_id") == LIFE_SCIENCE_RESEARCH_SCENARIO
+    ]
+    source_runs = [
+        row
+        for row in read_jsonl(task_dir / "data" / "source_runs.jsonl")
+        if row.get("plugin_name") == "life-science-research"
+        or row.get("source_run_id", "").startswith("LSR-")
+    ]
+    databases = {
+        str(
+            material.get("raw_fields", {}).get("source_database")
+            or material.get("collection_path", {}).get("source_database")
+            or ""
+        ).strip()
+        for material in materials
+    }
+    databases.update(
+        database.strip()
+        for run in source_runs
+        for database in str(run.get("source_database") or "").split(";")
+        if database.strip()
+    )
+    lanes = {
+        str(
+            material.get("evidence_lane")
+            or material.get("raw_fields", {}).get("evidence_lane")
+            or material.get("collection_path", {}).get("evidence_lane")
+            or ""
+        ).strip()
+        for material in materials
+    }
+    lanes.discard("")
+    scenario = (task.get("scenario_statuses") or {}).get(LIFE_SCIENCE_RESEARCH_SCENARIO) or {}
+    return {
+        "required": requires_life_science_research(task),
+        "status": scenario.get("status", "not_started"),
+        "material_count": len(materials),
+        "source_run_count": len(source_runs),
+        "database_count": len([item for item in databases if item]),
+        "lane_count": len(lanes),
+        "databases": sorted(item for item in databases if item),
+        "lanes": sorted(lanes),
+        "minimums": {
+            "materials": MIN_LIFE_SCIENCE_MATERIALS,
+            "databases": MIN_LIFE_SCIENCE_DATABASES,
+            "lanes": MIN_LIFE_SCIENCE_LANES,
+        },
+    }
+
+
+def life_science_warnings(coverage: dict) -> list[str]:
+    if not coverage.get("required"):
+        return []
+    warnings: list[str] = []
+    status = coverage.get("status") or "not_started"
+    material_count = int(coverage.get("material_count") or 0)
+    database_count = int(coverage.get("database_count") or 0)
+    lane_count = int(coverage.get("lane_count") or 0)
+    minimums = coverage.get("minimums") or {}
+    if status in {"not_started", "", None} or material_count == 0:
+        warnings.append(
+            "课题涉及标志物、蛋白、机制、临床试验或公共科学数据库线索，"
+            "但尚未导入 life-science-research 插件证据，不能判定业务可交付。"
+        )
+        return warnings
+    if material_count < minimums.get("materials", MIN_LIFE_SCIENCE_MATERIALS):
+        warnings.append(
+            "life-science-research 插件证据数量不足："
+            f"当前 {material_count} 条，至少需要 {MIN_LIFE_SCIENCE_MATERIALS} 条。"
+        )
+    if database_count < minimums.get("databases", MIN_LIFE_SCIENCE_DATABASES):
+        warnings.append(
+            "life-science-research 插件数据库覆盖不足："
+            f"当前 {database_count} 个，至少需要 {MIN_LIFE_SCIENCE_DATABASES} 个。"
+        )
+    if lane_count < minimums.get("lanes", MIN_LIFE_SCIENCE_LANES):
+        warnings.append(
+            "life-science-research 插件证据通道覆盖不足："
+            f"当前 {lane_count} 个，至少需要 {MIN_LIFE_SCIENCE_LANES} 个。"
+        )
+    return warnings
+
+
 def unresolved_network_scenarios(task: dict) -> list[dict]:
     statuses = task.get("scenario_statuses") or {}
     unresolved = []
@@ -459,6 +605,8 @@ def verify_package(task_dir: Path) -> dict:
         evidence_cards=list(read_jsonl(task_dir / "data" / "evidence_cards.jsonl")),
         scenario_statuses=scenario_statuses,
     )
+    life_science = life_science_coverage(task_dir, task)
+    life_science_gate_warnings = life_science_warnings(life_science)
     network_preflight = latest_network_preflight(task_dir)
     network_unresolved_scenarios = unresolved_network_scenarios(task)
     if missing_confirmations:
@@ -517,6 +665,7 @@ def verify_package(task_dir: Path) -> dict:
         warnings.append("人工复核结果中仍存在 needs_review 证据，不能作为最终报告。")
 
     coverage_warnings = scenario_coverage_warnings(task_dir)
+    coverage_warnings.extend(life_science_gate_warnings)
     warnings.extend(coverage_warnings)
     warnings.extend(fallback_warnings(collection_alerts))
     warnings.extend(network_warnings(network_preflight))
@@ -560,6 +709,7 @@ def verify_package(task_dir: Path) -> dict:
         "missing_confirmations": missing_confirmations,
         "fallback_ready": fallback_ready,
         "network_ready": network_ready,
+        "life_science_coverage": life_science,
         "network_preflight": network_preflight,
         "network_unresolved_scenarios": network_unresolved_scenarios,
         "business_ready": business_ready,
@@ -588,6 +738,7 @@ def verify_package(task_dir: Path) -> dict:
         "missing_confirmations": missing_confirmations,
         "fallback_ready": fallback_ready,
         "network_ready": network_ready,
+        "life_science_coverage": life_science,
         "network_preflight": network_preflight,
         "network_unresolved_scenarios": network_unresolved_scenarios,
         "business_ready": business_ready,

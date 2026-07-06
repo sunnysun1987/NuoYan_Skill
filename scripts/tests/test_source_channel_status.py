@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 import sys
 import types
 
@@ -164,3 +165,31 @@ def test_local_import_run_scenario_points_to_import_local(tmp_path: Path):
 
     assert result.status == FailureType.NEEDS_MANUAL_REVIEW.value
     assert "import-local" in result.message_zh
+
+
+def test_life_science_plan_command_marks_required_plugin_action(tmp_path: Path):
+    state = init_task("AD p-tau181 血液标志物 IVD 调研", tmp_path)
+    task_dir = Path(state.task_dir)
+    update_confirmations(task_dir, FULL_CONFIRMATIONS)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "life-science-plan",
+            "--task-id",
+            state.task_id,
+            "--output-root",
+            str(tmp_path),
+            "--json",
+        ],
+    )
+
+    task = json.loads((task_dir / "task.json").read_text(encoding="utf-8"))
+    scenario = task["scenario_statuses"]["life_science_research"]
+    plan_path = task_dir / "staging" / "life_science_research" / "external_plugin_query_plan.json"
+
+    assert result.exit_code == 0
+    assert plan_path.exists()
+    assert scenario["status"] == "needs_manual_review"
+    assert "life-science-research 插件" in scenario["last_message"]
+    assert '"minimum_coverage"' in result.stdout

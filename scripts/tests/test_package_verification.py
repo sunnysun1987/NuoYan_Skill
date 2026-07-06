@@ -4,11 +4,21 @@ from pathlib import Path
 import pytest
 from bs4 import BeautifulSoup
 
-from ivd_research.evidence import build_draft_evidence_card, export_evidence_card_files
+from ivd_research.evidence import (
+    build_draft_evidence_card,
+    export_evidence_card_files,
+    generate_draft_evidence_cards,
+)
 from ivd_research.jsonl import append_jsonl, write_json
 from ivd_research.models import Material
-from ivd_research.package import FORMAL_SCENARIOS, build_standard_delivery, verify_package
+from ivd_research.package import (
+    FORMAL_SCENARIOS,
+    build_standard_delivery,
+    requires_life_science_research,
+    verify_package,
+)
 from ivd_research.review_excel import export_review, import_review
+from ivd_research.source_adapters.life_science_research_bridge import import_life_science_findings
 from ivd_research.status import init_task
 from ivd_research.confirmations import update_confirmations
 
@@ -86,6 +96,43 @@ def _mark_formal_scenarios(task_dir: Path, status: str = "no_results") -> None:
     write_json(task_dir / "task.json", task)
 
 
+def _import_complete_life_science_coverage(task_dir: Path) -> None:
+    task = json.loads((task_dir / "task.json").read_text(encoding="utf-8"))
+    findings = []
+    seed_rows = [
+        ("UniProt", "protein", "MAPT"),
+        ("Open Targets", "target", "MAPT"),
+        ("ClinicalTrials.gov", "clinical", "p-tau217"),
+        ("ClinicalTrials.gov", "clinical", "p-tau181"),
+        ("STRING", "network", "MAPT"),
+        ("Reactome", "pathway", "tau protein binding"),
+        ("QuickGO", "pathway", "microtubule binding"),
+        ("Human Protein Atlas", "protein", "MAPT brain expression"),
+        ("GWAS Catalog", "genetics", "Alzheimer disease"),
+        ("NCBI Gene", "target", "MAPT"),
+        ("EFO/OLS", "disease", "Alzheimer disease"),
+        ("ClinicalTrials.gov", "clinical", "plasma biomarker"),
+    ]
+    for index, (database, lane, entity) in enumerate(seed_rows, start=1):
+        findings.append(
+            {
+                "source_database": database,
+                "evidence_lane": lane,
+                "entity": entity,
+                "query": "plasma p-tau217 Alzheimer disease",
+                "result_summary": f"{database} evidence row {index} for {entity}.",
+                "source_url": f"https://example.org/life-science/{index}",
+                "identifier": f"LS-{index:03d}",
+            }
+        )
+    import_life_science_findings(
+        task["task_id"],
+        task_dir,
+        findings,
+        query="plasma p-tau217 Alzheimer disease",
+    )
+
+
 def test_verify_package_keeps_incomplete_scope_as_not_business_ready(tmp_path: Path):
     task_dir = _task_dir(tmp_path)
     _write_single_material_and_card(task_dir)
@@ -99,6 +146,21 @@ def test_verify_package_keeps_incomplete_scope_as_not_business_ready(tmp_path: P
     assert result["business_ready"] is False
     assert "task_info" in result["missing_confirmations"]
     assert result["final_review_ready"] is False
+
+
+def test_life_science_requirement_detects_ad_without_lead_false_positive():
+    assert requires_life_science_research(
+        {
+            "topic": "AD p-tau181 血液标志物",
+            "confirmations": {"english_keywords": "AD plasma biomarker"},
+        }
+    )
+    assert not requires_life_science_research(
+        {
+            "topic": "lead time workflow improvement",
+            "confirmations": {"english_keywords": "lead time process validation"},
+        }
+    )
 
 
 def test_standard_delivery_report_has_drilldown_navigation_and_metric_definitions(tmp_path: Path):
@@ -168,6 +230,8 @@ def test_verify_package_accepts_reviewed_complete_offline_package(tmp_path: Path
     task_dir = _task_dir(tmp_path)
     update_confirmations(task_dir, FULL_CONFIRMATIONS)
     _write_single_material_and_card(task_dir)
+    _import_complete_life_science_coverage(task_dir)
+    generate_draft_evidence_cards(task_dir)
     review = export_review(task_dir)
     _mark_formal_scenarios(task_dir)
 
@@ -199,6 +263,86 @@ def test_verify_package_accepts_reviewed_complete_offline_package(tmp_path: Path
     assert result["fallback_ready"] is True
     assert result["network_ready"] is True
     assert result["business_ready"] is True
+
+
+def test_verify_package_requires_life_science_for_biomarker_projects(tmp_path: Path):
+    task_dir = _task_dir(tmp_path)
+    update_confirmations(task_dir, FULL_CONFIRMATIONS)
+    _write_single_material_and_card(task_dir)
+    review = export_review(task_dir)
+    _mark_formal_scenarios(task_dir)
+
+    from openpyxl import load_workbook
+
+    workbook = Path(review["review_path"])
+    wb = load_workbook(workbook)
+    ws = wb["文献"]
+    headers = [cell.value for cell in ws[1]]
+    for header, value in {
+        "是否纳入报告": "是",
+        "一级标签": "临床意义",
+        "证据强度": "moderate",
+        "复核状态": "已复核",
+    }.items():
+        ws.cell(row=2, column=headers.index(header) + 1, value=value)
+    wb.save(workbook)
+
+    assert import_review(task_dir, workbook)["ok"] is True
+    build_standard_delivery(task_dir)
+    result = verify_package(task_dir)
+
+    assert result["life_science_coverage"]["required"] is True
+    assert result["scenario_coverage_ready"] is False
+    assert result["business_ready"] is False
+    assert any("尚未导入 life-science-research" in warning for warning in result["warnings"])
+
+
+def test_verify_package_blocks_shallow_life_science_coverage(tmp_path: Path):
+    task_dir = _task_dir(tmp_path)
+    update_confirmations(task_dir, FULL_CONFIRMATIONS)
+    _write_single_material_and_card(task_dir)
+    import_life_science_findings(
+        json.loads((task_dir / "task.json").read_text(encoding="utf-8"))["task_id"],
+        task_dir,
+        [
+            {
+                "source_database": "UniProt",
+                "evidence_lane": "protein",
+                "entity": "MAPT",
+                "result_summary": "Single protein finding.",
+            }
+        ],
+        query="MAPT Alzheimer disease",
+    )
+    generate_draft_evidence_cards(task_dir)
+    review = export_review(task_dir)
+    _mark_formal_scenarios(task_dir)
+
+    from openpyxl import load_workbook
+
+    workbook = Path(review["review_path"])
+    wb = load_workbook(workbook)
+    ws = wb["文献"]
+    headers = [cell.value for cell in ws[1]]
+    for row in range(2, ws.max_row + 1):
+        for header, value in {
+            "是否纳入报告": "是",
+            "一级标签": "临床意义",
+            "证据强度": "moderate",
+            "复核状态": "已复核",
+        }.items():
+            ws.cell(row=row, column=headers.index(header) + 1, value=value)
+    wb.save(workbook)
+
+    assert import_review(task_dir, workbook)["ok"] is True
+    build_standard_delivery(task_dir)
+    result = verify_package(task_dir)
+
+    assert result["life_science_coverage"]["material_count"] == 1
+    assert result["scenario_coverage_ready"] is False
+    assert any("插件证据数量不足" in warning for warning in result["warnings"])
+    assert any("插件数据库覆盖不足" in warning for warning in result["warnings"])
+    assert any("插件证据通道覆盖不足" in warning for warning in result["warnings"])
 
 
 def test_verify_package_blocks_unresolved_network_after_failed_preflight(tmp_path: Path):

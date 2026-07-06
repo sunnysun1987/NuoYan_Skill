@@ -2856,6 +2856,9 @@ def build_standard_report(task_dir: Path, output: Path | None = None) -> dict:
     openalex_materials = [
         item for item in literature_materials if item.get("source_scenario") == "openalex_literature"
     ]
+    life_science_materials = [
+        item for item in literature_materials if item.get("source_scenario") == "life_science_research"
+    ]
     other_literature_materials = [
         item
         for item in literature_materials
@@ -2863,6 +2866,7 @@ def build_standard_report(task_dir: Path, output: Path | None = None) -> dict:
             "pubmed_literature",
             "pmc_fulltext",
             "openalex_literature",
+            "life_science_research",
         }
     ]
     regulatory_materials = _by_type(materials, "regulatory")
@@ -2909,6 +2913,19 @@ def build_standard_report(task_dir: Path, output: Path | None = None) -> dict:
                 len(openalex_materials),
             ),
             "use": "支撑跨库文献发现、DOI/PMID 补齐、开放获取全文和 PDF 链接识别。",
+        },
+        {
+            "name": "外部科学数据库",
+            "count": len(life_science_materials),
+            "status": _scenario_status_text(
+                scenario_map.get("life_science_research", {}).get("status", ""),
+                len(life_science_materials),
+            ),
+            "level": _scenario_level(
+                scenario_map.get("life_science_research", {}).get("status", ""),
+                len(life_science_materials),
+            ),
+            "use": "补充靶标、蛋白、通路、临床试验、遗传关联和公共数据库线索。",
         },
         {
             "name": "中文文献",
