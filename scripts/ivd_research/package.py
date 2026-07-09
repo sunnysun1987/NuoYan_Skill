@@ -10,6 +10,8 @@ from .paths import safe_topic
 from .project_profile import (
     NETWORK_SENSITIVE_SCENARIOS,
     formal_scenarios_for,
+    profile_text,
+    project_domain,
 )
 from .quality import build_collection_alerts
 from .status import now_iso
@@ -59,10 +61,75 @@ LIFE_SCIENCE_TRIGGER_TERMS = [
     "amyloid",
     "tau",
     "nfl",
+    "hcg",
+    "β-hcg",
+    "beta-hcg",
+    "beta hcg",
+    "human chorionic gonadotropin",
+    "chorionic gonadotropin",
+    "绒毛膜促性腺激素",
+    "cgb",
 ]
 LIFE_SCIENCE_TRIGGER_PATTERNS = [
     r"\bad\b",
+    r"\bcgb\d*\b",
 ]
+LIFE_SCIENCE_REQUIRED_DOMAINS = {
+    "ad_biomarker",
+    "neurology",
+    "hcg",
+}
+LIFE_SCIENCE_AUTO_PRODUCT_TERMS = [
+    "ivd",
+    "体外诊断",
+    "检测试剂盒",
+    "测定试剂盒",
+    "检测试剂",
+    "测定试剂",
+    "检测项目",
+    "检测产品",
+    "定量检测",
+    "定性检测",
+    "免疫分析",
+    "免疫层析",
+    "化学发光",
+    "poct",
+    "assay",
+    "test kit",
+    "diagnostic kit",
+    "immunoassay",
+]
+LIFE_SCIENCE_SCOPE_DISABLED_VALUES = {
+    "false",
+    "no",
+    "skip",
+    "none",
+    "not_applicable",
+    "not applicable",
+    "registry_only",
+    "competitor_only",
+    "regulatory_only",
+    "无需",
+    "不需要",
+    "不适用",
+    "跳过",
+    "仅注册",
+    "只做注册",
+    "仅竞品",
+    "只做竞品",
+    "只做注册/竞品/标准",
+}
+LIFE_SCIENCE_SCOPE_ENABLED_VALUES = {
+    "true",
+    "yes",
+    "required",
+    "include",
+    "auto_required",
+    "需要",
+    "必须",
+    "包含",
+    "启用",
+}
 MIN_LIFE_SCIENCE_MATERIALS = 12
 MIN_LIFE_SCIENCE_DATABASES = 5
 MIN_LIFE_SCIENCE_LANES = 4
@@ -429,20 +496,34 @@ def network_warnings(network_preflight: dict | None) -> list[str]:
     return warnings
 
 
+def _life_science_scope_override(confirmations: dict) -> bool | None:
+    explicit = confirmations.get("life_science_required")
+    if isinstance(explicit, bool):
+        return explicit
+    explicit_text = str(explicit or "").strip().lower()
+    scope_text = str(confirmations.get("life_science_scope") or "").strip().lower()
+    for value in [explicit_text, scope_text]:
+        if not value or value == "auto":
+            continue
+        if value in LIFE_SCIENCE_SCOPE_ENABLED_VALUES:
+            return True
+        if value in LIFE_SCIENCE_SCOPE_DISABLED_VALUES:
+            return False
+    return None
+
+
 def requires_life_science_research(task: dict) -> bool:
     confirmations = task.get("confirmations") or {}
-    values = [
-        task.get("topic", ""),
-        confirmations.get("primary_query", ""),
-        confirmations.get("english_keywords", ""),
-        confirmations.get("chinese_synonyms", ""),
-        confirmations.get("intended_use", ""),
-        confirmations.get("sample_type", ""),
-        confirmations.get("methodology", ""),
-    ]
-    haystack = " ".join(str(value or "") for value in values).lower()
+    override = _life_science_scope_override(confirmations)
+    if override is not None:
+        return override
+
+    haystack = profile_text(task)
     return any(term.lower() in haystack for term in LIFE_SCIENCE_TRIGGER_TERMS) or any(
         re.search(pattern, haystack) for pattern in LIFE_SCIENCE_TRIGGER_PATTERNS
+    ) or project_domain(task) in LIFE_SCIENCE_REQUIRED_DOMAINS or (
+        bool(confirmations.get("collection_scope"))
+        and any(term in haystack for term in LIFE_SCIENCE_AUTO_PRODUCT_TERMS)
     )
 
 

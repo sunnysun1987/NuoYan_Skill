@@ -356,6 +356,50 @@ def test_verify_package_does_not_require_ad_sources_for_hcg_project(tmp_path: Pa
     assert result["life_science_coverage"]["required"] is True
 
 
+def test_hcg_requires_life_science_from_confirmed_profile_not_stale_topic(tmp_path: Path):
+    state = init_task("旧标题不应决定项目画像", tmp_path)
+    task_dir = Path(state.task_dir)
+    update_confirmations(task_dir, HCG_CONFIRMATIONS)
+    task = json.loads((task_dir / "task.json").read_text(encoding="utf-8"))
+
+    assert requires_life_science_research(task) is True
+
+
+def test_generic_ivd_test_kit_conservatively_requires_life_science(tmp_path: Path):
+    state = init_task("普通 IVD 检测产品 LSR 安全触发", tmp_path)
+    task_dir = Path(state.task_dir)
+    update_confirmations(
+        task_dir,
+        {
+            **HCG_CONFIRMATIONS,
+            "primary_query": "肌钙蛋白I定量检测试剂盒 化学发光法",
+            "english_keywords": "cardiac troponin I quantitative chemiluminescent assay IVD",
+            "chinese_synonyms": "",
+            "intended_use": "心肌损伤辅助诊断",
+            "competitor_scope": "NMPA 已注册同类产品",
+        },
+    )
+    task = json.loads((task_dir / "task.json").read_text(encoding="utf-8"))
+
+    assert requires_life_science_research(task) is True
+
+
+def test_explicit_registry_only_scope_can_disable_life_science(tmp_path: Path):
+    state = init_task("只做注册竞品标准", tmp_path)
+    task_dir = Path(state.task_dir)
+    update_confirmations(
+        task_dir,
+        {
+            **HCG_CONFIRMATIONS,
+            "life_science_required": False,
+            "life_science_scope": "只做注册/竞品/标准",
+        },
+    )
+    task = json.loads((task_dir / "task.json").read_text(encoding="utf-8"))
+
+    assert requires_life_science_research(task) is False
+
+
 def test_verify_package_requires_life_science_for_biomarker_projects(tmp_path: Path):
     task_dir = _task_dir(tmp_path)
     update_confirmations(task_dir, FULL_CONFIRMATIONS)

@@ -218,6 +218,33 @@ def _record_life_science_plan_if_required(task_dir: Path, state) -> dict:
     return {"required": True, "status": "needs_manual_review", "plan_path": str(plan_path)}
 
 
+def _life_science_first_gate(
+    task_dir: Path,
+    state,
+    *,
+    action: str,
+    json_output: bool,
+) -> dict:
+    status = _record_life_science_plan_if_required(task_dir, state)
+    save_task(state)
+    if status.get("required") and status.get("status") != "completed":
+        emit(
+            {
+                "status": "needs_life_science_research",
+                "action": action,
+                "life_science_plan": status,
+                "message_zh": (
+                    "当前课题需要先完成 life-science-research 外部科学数据库证据。"
+                    "请先按计划调用插件查询并通过 import-life-science-findings 导入材料，"
+                    "达到默认覆盖后再继续运行标准采集流水线。"
+                ),
+            },
+            json_output,
+        )
+        raise typer.Exit(code=2)
+    return status
+
+
 def _defer_inapplicable_scenarios(state, plans_by_scenario: dict) -> list[str]:
     deferred: list[str] = []
     for scenario in SCENARIO_COLLECTORS:
@@ -828,6 +855,19 @@ def run_full_pipeline_command(
             action="run_full_pipeline",
             json_output=json_output,
         )
+        life_science_plan = _life_science_first_gate(
+            task_dir,
+            state,
+            action="run_full_pipeline",
+            json_output=json_output,
+        )
+    else:
+        life_science_plan = _life_science_first_gate(
+            task_dir,
+            state,
+            action="run_full_pipeline:skip_collection",
+            json_output=json_output,
+        )
     network_status = {}
     if not skip_collection:
         network_status = _run_network_preflight(
@@ -865,10 +905,8 @@ def run_full_pipeline_command(
                 if result.status != "completed":
                     state.scenario_statuses[scenario].failure_count += 1
                 state.scenario_statuses[scenario].last_message = result.message_zh
-        life_science_plan = _record_life_science_plan_if_required(task_dir, state)
         save_task(state)
     else:
-        life_science_plan = _record_life_science_plan_if_required(task_dir, state)
         save_task(state)
 
     evidence_result = generate_draft_evidence_cards(task_dir)
@@ -919,6 +957,16 @@ def run_delivery_pipeline_command(
     if missing_confirmations and not skip_collection:
         emit(confirmation_gate_payload(state, action="run_delivery_pipeline"), json_output)
         raise typer.Exit(code=2)
+    life_science_plan = _life_science_first_gate(
+        task_dir,
+        state,
+        action=(
+            "run_delivery_pipeline:skip_collection"
+            if skip_collection
+            else "run_delivery_pipeline"
+        ),
+        json_output=json_output,
+    )
 
     network_status = {}
     if not skip_collection:
@@ -991,11 +1039,9 @@ def run_delivery_pipeline_command(
                 _record_scenario_result(task_dir, state, scenario, result)
                 save_task(state)
 
-        life_science_plan = _record_life_science_plan_if_required(task_dir, state)
         save_task(state)
     else:
         deferred_scenarios = []
-        life_science_plan = _record_life_science_plan_if_required(task_dir, state)
         save_task(state)
 
     evidence_result = generate_draft_evidence_cards(task_dir)

@@ -13,6 +13,9 @@ from ivd_research.scenarios.base import ScenarioResult
 from ivd_research.scenarios.cmde_regulatory import collect as collect_cmde
 from ivd_research.scenarios.local_import_adapter import collect as collect_local_import
 from ivd_research.scenarios.nmpa_competitor import collect as collect_nmpa
+from ivd_research.source_adapters.life_science_research_bridge import (
+    import_life_science_findings,
+)
 from ivd_research.status import init_task
 
 
@@ -30,6 +33,48 @@ FULL_CONFIRMATIONS = {
     "competitor_scope": "NMPA 已注册同类产品",
     "patent_scope": "全球",
 }
+
+
+def _hcg_confirmations() -> dict:
+    return {
+        "task_info": True,
+        "keyword_pool": True,
+        "collection_scope": True,
+        "primary_query": "beta-hCG定量检测试剂盒（荧光免疫层析法）",
+        "english_keywords": "beta hCG quantitative test kit fluorescence immunochromatography",
+        "sample_type": "血清/尿液",
+        "platform": "荧光免疫层析",
+        "methodology": "荧光免疫层析法",
+        "intended_use": "妊娠相关检测",
+        "target_region": "中国",
+        "competitor_scope": "NMPA hCG 同类产品",
+        "patent_scope": "中国",
+    }
+
+
+def _import_minimum_life_science(task_id: str, task_dir: Path) -> None:
+    databases = [
+        "UniProt",
+        "NCBI Gene",
+        "Human Protein Atlas",
+        "ClinicalTrials.gov",
+        "Reactome",
+    ]
+    lanes = ["target_protein", "expression", "clinical", "pathway_network"]
+    findings = [
+        {
+            "source_database": databases[index % len(databases)],
+            "evidence_lane": lanes[index % len(lanes)],
+            "entity": f"hCG-{index}",
+            "query": "beta hCG quantitative immunoassay",
+            "title": f"beta-hCG external evidence {index}",
+            "result_summary": "beta-hCG is a pregnancy-related glycoprotein biomarker.",
+            "source_url": f"https://example.org/life-science/hcg/{index}",
+            "identifier": f"LSR-HCG-{index}",
+        }
+        for index in range(12)
+    ]
+    import_life_science_findings(task_id, task_dir, findings, query="beta hCG")
 
 
 def test_run_scenario_retries_query_plans(monkeypatch, tmp_path: Path):
@@ -198,23 +243,8 @@ def test_life_science_plan_command_marks_required_plugin_action(tmp_path: Path):
 def test_delivery_pipeline_does_not_collect_ad_source_for_hcg(monkeypatch, tmp_path: Path):
     state = init_task("beta-hCG 非 AD 信源装配测试", tmp_path)
     task_dir = Path(state.task_dir)
-    update_confirmations(
-        task_dir,
-        {
-            "task_info": True,
-            "keyword_pool": True,
-            "collection_scope": True,
-            "primary_query": "beta-hCG定量检测试剂盒（荧光免疫层析法）",
-            "english_keywords": "beta hCG quantitative test kit fluorescence immunochromatography",
-            "sample_type": "血清/尿液",
-            "platform": "荧光免疫层析",
-            "methodology": "荧光免疫层析法",
-            "intended_use": "妊娠相关检测",
-            "target_region": "中国",
-            "competitor_scope": "NMPA hCG 同类产品",
-            "patent_scope": "中国",
-        },
-    )
+    update_confirmations(task_dir, _hcg_confirmations())
+    _import_minimum_life_science(state.task_id, task_dir)
     calls = []
 
     def fake_collect(task_id, task_dir, params):
@@ -249,3 +279,41 @@ def test_delivery_pipeline_does_not_collect_ad_source_for_hcg(monkeypatch, tmp_p
     assert calls == []
     assert scenario["status"] == "deferred"
     assert "AD 专用信源" in scenario["last_message"]
+
+
+def test_delivery_pipeline_blocks_hcg_until_life_science_import(monkeypatch, tmp_path: Path):
+    state = init_task("beta-hCG LSR-first gate 测试", tmp_path)
+    task_dir = Path(state.task_dir)
+    update_confirmations(task_dir, _hcg_confirmations())
+    calls = []
+
+    def fake_collect(task_id, task_dir, params):
+        calls.append(params)
+        return ScenarioResult(status="completed", message_zh="不应先采集")
+
+    monkeypatch.setattr("ivd_research.cli.DELIVERY_BROWSER_SCENARIOS", [])
+    monkeypatch.setattr("ivd_research.cli.DELIVERY_HTTP_SCENARIOS", ["pubmed_literature"])
+    monkeypatch.setattr("ivd_research.cli.SCENARIO_COLLECTORS", {"pubmed_literature": fake_collect})
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "run-delivery-pipeline",
+            "--task-id",
+            state.task_id,
+            "--output-root",
+            str(tmp_path),
+            "--skip-network-preflight",
+            "--json",
+        ],
+    )
+
+    payload = json.loads(result.stdout)
+    task = json.loads((task_dir / "task.json").read_text(encoding="utf-8"))
+    scenario = task["scenario_statuses"]["life_science_research"]
+
+    assert result.exit_code == 2
+    assert payload["status"] == "needs_life_science_research"
+    assert calls == []
+    assert scenario["status"] == "needs_manual_review"
+    assert (task_dir / "staging" / "life_science_research" / "external_plugin_query_plan.json").exists()

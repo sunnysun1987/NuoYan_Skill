@@ -28,6 +28,10 @@ DEFAULT_CONFIRMATIONS = {
     "english_keywords": "",
     "english_method_keywords": "",
     "chinese_synonyms": "",
+    # Defaults to conservative auto-detection. Set to False only when a
+    # confirmed scope explicitly excludes scientific database evidence.
+    "life_science_required": "auto",
+    "life_science_scope": "auto",
 }
 
 
