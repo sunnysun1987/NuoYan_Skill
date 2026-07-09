@@ -44,6 +44,7 @@ LITERATURE_PROFILES = {
     "quick_scan": {
         "label_zh": "快速扫描",
         "retmax": 50,
+        "method_retmax": 30,
         "similar_retmax": 3,
         "similar_article_source_limit": 20,
         "pdf_download_limit": 10,
@@ -51,6 +52,7 @@ LITERATURE_PROFILES = {
     "complete_literature": {
         "label_zh": "完整文献",
         "retmax": 200,
+        "method_retmax": 100,
         "similar_retmax": 5,
         "similar_article_source_limit": 50,
         "pdf_download_limit": 50,
@@ -58,6 +60,7 @@ LITERATURE_PROFILES = {
     "fulltext_first": {
         "label_zh": "全文优先",
         "retmax": 200,
+        "method_retmax": 150,
         "similar_retmax": 5,
         "similar_article_source_limit": 50,
         "pdf_download_limit": 100,
@@ -65,6 +68,7 @@ LITERATURE_PROFILES = {
     "core_must_read": {
         "label_zh": "核心必读",
         "retmax": 100,
+        "method_retmax": 50,
         "similar_retmax": 5,
         "similar_article_source_limit": 30,
         "pdf_download_limit": 30,
@@ -72,6 +76,7 @@ LITERATURE_PROFILES = {
     "chinese_first": {
         "label_zh": "中文优先",
         "retmax": 100,
+        "method_retmax": 50,
         "similar_retmax": 3,
         "similar_article_source_limit": 20,
         "pdf_download_limit": 20,
@@ -367,23 +372,98 @@ def _literature_date_range(state: Any) -> Any:
 
 
 def _literature_retmax(state: Any) -> int | str:
-    value = _confirmation(state, "literature_retmax", 100)
+    confirmations = getattr(state, "confirmations", {}) or {}
+    if "literature_retmax" not in confirmations:
+        return 0
+    value = confirmations.get("literature_retmax")
+    if value in (False, None, "", [], {}):
+        return 0
     if isinstance(value, str) and value.strip().lower() in {"all", "全部", "full", "unlimited"}:
         return "all"
     try:
         parsed = int(value)
-        return min(max(parsed, 10), 200)
+        return min(max(parsed, 10), 1000)
     except (TypeError, ValueError):
-        return 100
+        return 0
 
 
 def _literature_profile(state: Any) -> dict[str, Any]:
     profile_id = str(_confirmation(state, "literature_profile", "complete_literature") or "complete_literature").strip()
-    profile = LITERATURE_PROFILES.get(profile_id, LITERATURE_PROFILES["complete_literature"])
+    if profile_id not in LITERATURE_PROFILES:
+        profile_id = "complete_literature"
+    profile = LITERATURE_PROFILES[profile_id]
     requested_retmax = _literature_retmax(state)
     result = {"profile_id": profile_id, **profile}
-    result["retmax"] = requested_retmax
+    if requested_retmax == "all":
+        result["retmax"] = "all"
+    elif requested_retmax:
+        # Lightweight scans can intentionally stay small. Complete profiles
+        # keep their own default depth as a floor so a stale confirmation such
+        # as 50 cannot silently downgrade a standard literature run.
+        if profile_id == "quick_scan":
+            result["retmax"] = requested_retmax
+        else:
+            result["retmax"] = max(int(requested_retmax), int(profile["retmax"]))
+    else:
+        result["retmax"] = profile["retmax"]
     return result
+
+
+def resolved_literature_profile(state: Any) -> dict[str, Any]:
+    return dict(_literature_profile(state))
+
+
+def _method_signal_text(state: Any) -> str:
+    return " ".join(
+        str(value or "")
+        for value in [
+            _confirmation(state, "methodology", ""),
+            _confirmation(state, "platform", ""),
+            _confirmation(state, "english_method_keywords", ""),
+            _confirmation(state, "primary_query", ""),
+        ]
+    )
+
+
+def _method_expansion_retmax(literature_profile: dict[str, Any]) -> int | str:
+    retmax = literature_profile.get("retmax")
+    if retmax == "all":
+        return "all"
+    method_retmax = literature_profile.get("method_retmax") or retmax
+    try:
+        return min(int(method_retmax), int(retmax))
+    except (TypeError, ValueError):
+        return method_retmax
+
+
+def _english_method_expansion_queries(state: Any, *, max_candidates: int = 3) -> list[str]:
+    signal = _method_signal_text(state).lower()
+    explicit = str(_confirmation(state, "english_method_keywords", "") or "").strip()
+    target = (
+        "human chorionic gonadotropin beta hCG"
+        if _hcg_core_queries(_profile_text(state))
+        else _openalex_core_query(state)
+    )
+    candidates: list[str] = []
+    if explicit:
+        candidates.append(_append_terms(target, explicit))
+    if any(term in signal for term in ["荧光免疫层析", "fluorescence immunochromat", "fluorescent immunochromat"]):
+        candidates.extend(
+            [
+                _append_terms(target, "fluorescence immunochromatographic assay"),
+                _append_terms(target, "fluorescent immunochromatographic assay"),
+            ]
+        )
+    if any(term in signal for term in ["免疫层析", "lateral flow", "immunochromat"]):
+        candidates.extend(
+            [
+                _append_terms(target, "lateral flow immunoassay"),
+                _append_terms(target, "immunochromatographic assay"),
+            ]
+        )
+    if any(term in signal for term in ["poct", "point-of-care", "即时", "床旁"]):
+        candidates.append(_append_terms(target, "point-of-care immunoassay"))
+    return _dedupe(candidates)[:max_candidates]
 
 
 def _date_range_bounds(
@@ -545,12 +625,29 @@ def _english_literature_plans(
         common_params["pdf_download_limit"] = literature_profile["pdf_download_limit"]
     core = _openalex_core_query(state)
     broad = _english_primary_query(state)
+    method_queries = _english_method_expansion_queries(state)
     plans = [
         ScenarioQueryPlan(
             query=core,
-            params={"query_role": f"{source}_core_keywords", **common_params},
+            params={
+                "query_role": f"{source}_core_keywords",
+                "continue_after_results": bool(method_queries),
+                **common_params,
+            },
         )
     ]
+    method_params = {
+        **common_params,
+        "retmax": _method_expansion_retmax(literature_profile),
+    }
+    for query in method_queries:
+        if query and query != core:
+            plans.append(
+                ScenarioQueryPlan(
+                    query=query,
+                    params={"query_role": f"{source}_method_keywords", **method_params},
+                )
+            )
     if broad and broad != core:
         plans.append(
             ScenarioQueryPlan(
@@ -570,12 +667,29 @@ def _openalex_plans(state: Any, literature_profile: dict[str, Any], literature_d
     }
     core = _openalex_core_query(state)
     broad = _openalex_query(state)
+    method_queries = _english_method_expansion_queries(state)
     plans = [
         ScenarioQueryPlan(
             query=core,
-            params={"query_role": "openalex_core_keywords", **common_params},
+            params={
+                "query_role": "openalex_core_keywords",
+                "continue_after_results": bool(method_queries),
+                **common_params,
+            },
         )
     ]
+    method_params = {
+        **common_params,
+        "retmax": _method_expansion_retmax(literature_profile),
+    }
+    for query in method_queries:
+        if query and query != core:
+            plans.append(
+                ScenarioQueryPlan(
+                    query=query,
+                    params={"query_role": "openalex_method_keywords", **method_params},
+                )
+            )
     if broad and broad != core:
         plans.append(
             ScenarioQueryPlan(

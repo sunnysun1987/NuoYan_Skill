@@ -94,6 +94,8 @@ REQUIRED_BUSINESS_CONFIRMATIONS = [
     "intended_use",
     "target_region",
     "competitor_scope",
+    "literature_date_range",
+    "literature_profile",
     "patent_scope",
 ]
 
@@ -109,14 +111,28 @@ CONFIRMATION_QUESTIONS = {
     "intended_use": "请确认预期用途，例如：辅助诊断、风险分层、筛查/分诊、疗效监测或研究用途。",
     "target_region": "请确认目标地区，例如：中国注册优先/中国+欧盟/中国+美国。",
     "competitor_scope": "请确认竞品范围，例如：目标检测项目直接竞品、相邻检测项目、同方法学产品或同临床场景产品。",
+    "literature_date_range": "请确认文献时间范围，例如：近 5 年、近 10 年或指定起止日期。",
+    "literature_profile": "请确认文献检索 profile，例如：complete_literature、fulltext_first、core_must_read、quick_scan。",
     "patent_scope": "请确认专利检索范围，例如：中国/全球/PCT+中美欧日。",
 }
 
 
 def missing_business_confirmations(state) -> list[str]:
     missing = []
+    confirmations = state.confirmations
     for key in REQUIRED_BUSINESS_CONFIRMATIONS:
-        value = state.confirmations.get(key)
+        if key == "literature_date_range":
+            value = confirmations.get("literature_date_range")
+            years = confirmations.get("literature_years")
+            if value in (False, None, "", [], {}) and years in (False, None, "", [], {}):
+                missing.append(key)
+            continue
+        if key == "literature_profile":
+            value = confirmations.get("literature_profile") or "complete_literature"
+            if value in (False, None, "", [], {}):
+                missing.append(key)
+            continue
+        value = confirmations.get(key)
         if value in (False, None, "", [], {}):
             missing.append(key)
     return missing
@@ -282,6 +298,87 @@ def _should_retry_scenario_result(result) -> bool:
         "no_valid_materials",
         "collection_failed",
     }
+
+
+def _attempt_log_row(plan, result) -> dict:
+    return {
+        "query_role": plan.params.get("query_role", ""),
+        "query": plan.query,
+        "retmax": plan.params.get("retmax", ""),
+        "literature_profile": plan.params.get("literature_profile", ""),
+        "status": result.status,
+        "material_count": len(result.materials),
+        "message_zh": result.message_zh,
+    }
+
+
+def _merge_plan_results(results: list[ScenarioResult], attempts: list[dict]) -> ScenarioResult | None:
+    if not results:
+        return None
+    materials: list[Material] = []
+    material_result: ScenarioResult | None = None
+    for result in results:
+        if result.materials:
+            material_result = result
+            materials.extend(result.materials)
+    base = material_result or results[-1]
+    message = base.message_zh
+    if len(attempts) > 1:
+        message = f"{message} 已按 {len(attempts)} 个检索层级重试/执行。"
+    if materials:
+        message = f"{message} 合计形成 {len(materials)} 条材料。"
+        return ScenarioResult(
+            status="completed",
+            materials=materials,
+            message_zh=message,
+            collection_errors=base.collection_errors,
+        )
+    return ScenarioResult(
+        status=base.status,
+        materials=[],
+        failure_type=base.failure_type,
+        message_zh=message,
+        collection_errors=base.collection_errors,
+    )
+
+
+def _collect_scenario_plans(
+    *,
+    task_id: str,
+    task_dir: Path,
+    collector,
+    plans,
+    extra_params: dict | None = None,
+) -> tuple[ScenarioResult | None, list[dict], list[dict]]:
+    attempts: list[dict] = []
+    results: list[ScenarioResult] = []
+    collection_results: list[dict] = []
+    first_material_id = next_material_id(task_dir)
+    try:
+        first_material_number = int(first_material_id.split("-", 1)[1])
+    except (IndexError, ValueError):
+        first_material_number = 1
+    for offset, plan in enumerate(plans):
+        material_id = f"MAT-{first_material_number + offset:06d}"
+        params = {
+            "material_id": material_id,
+            "query": plan.query,
+            **(extra_params or {}),
+            **plan.params,
+        }
+        try:
+            result = collector(task_id=task_id, task_dir=task_dir, params=params)
+        except Exception as exc:
+            scenario = str(params.get("scenario_id") or "")
+            result = _exception_result(scenario, exc)
+        results.append(result)
+        collection_results.append(result.model_dump(mode="json"))
+        attempts.append(_attempt_log_row(plan, result))
+        if result.materials and plan.params.get("continue_after_results"):
+            continue
+        if not _should_retry_scenario_result(result):
+            break
+    return _merge_plan_results(results, attempts), attempts, collection_results
 
 
 def _exception_result(scenario: str, exc: Exception) -> ScenarioResult:
@@ -464,39 +561,20 @@ def run_scenario_command(
         return
     plans = plans_by_scenario.get(scenario) or default_query_plan(state)
     collector = SCENARIO_COLLECTORS.get(scenario)
-    attempts = []
-    result = None
-    for plan in plans:
-        params = {
-            "material_id": next_material_id(task_dir),
-            "query": plan.query,
-            **plan.params,
-        }
-        if collector:
-            result = collector(task_id=task_id, task_dir=task_dir, params=params)
-        else:
-            result = adapter.run(task_id=task_id, task_dir=task_dir, params=params)
-        attempts.append(
-            {
-                "query_role": plan.params.get("query_role", ""),
-                "query": plan.query,
-                "status": result.status,
-                "material_count": len(result.materials),
-                "message_zh": result.message_zh,
-            }
-        )
-        if not _should_retry_scenario_result(result):
-            break
+    runner = collector or adapter.run
+    result, attempts, _collection_results = _collect_scenario_plans(
+        task_id=task_id,
+        task_dir=task_dir,
+        collector=runner,
+        plans=plans,
+        extra_params={"scenario_id": scenario},
+    )
 
     if result is None:
         result = ScenarioResult(
             status="needs_manual_review",
             failure_type=FailureType.NEEDS_MANUAL_REVIEW,
             message_zh=f"{adapter.label_zh} 未生成可执行检索计划。",
-        )
-    if len(attempts) > 1:
-        result.message_zh = (
-            f"{result.message_zh} 已按 {len(attempts)} 个检索层级重试。"
         )
     _record_scenario_result(task_dir, state, scenario, result)
     append_jsonl(
@@ -896,30 +974,28 @@ def run_full_pipeline_command(
         for scenario, collector in SCENARIO_COLLECTORS.items():
             if scenario == "local_import" or scenario not in plans_by_scenario:
                 continue
-            result = None
-            for plan in plans_by_scenario.get(scenario) or default_query_plan(state):
-                params = {
-                    "material_id": next_material_id(task_dir),
-                    "query": plan.query,
-                    **plan.params,
-                }
-                result = collector(task_id=task_id, task_dir=task_dir, params=params)
-                collection_results.append(result.model_dump(mode="json"))
-                if result.materials or result.status not in {
-                    "no_results",
-                    "no_valid_materials",
-                    "collection_failed",
-                }:
-                    break
+            result, attempts, raw_results = _collect_scenario_plans(
+                task_id=task_id,
+                task_dir=task_dir,
+                collector=collector,
+                plans=plans_by_scenario.get(scenario) or default_query_plan(state),
+                extra_params={"scenario_id": scenario},
+            )
+            collection_results.extend(raw_results)
+            if attempts:
+                append_jsonl(
+                    task_dir / "logs" / "events.jsonl",
+                    {
+                        "time": now_iso(),
+                        "event": "scenario_query_attempts",
+                        "scenario_id": scenario,
+                        "action": "run_full_pipeline",
+                        "attempts": attempts,
+                    },
+                )
             if result is None:
                 continue
-            record_materials(task_dir, result.materials)
-            if scenario in state.scenario_statuses:
-                state.scenario_statuses[scenario].status = result.status
-                state.scenario_statuses[scenario].material_count += len(result.materials)
-                if result.status != "completed":
-                    state.scenario_statuses[scenario].failure_count += 1
-                state.scenario_statuses[scenario].last_message = result.message_zh
+            _record_scenario_result(task_dir, state, scenario, result)
         save_task(state)
     else:
         save_task(state)
@@ -1053,35 +1129,14 @@ def run_delivery_pipeline_command(
             if scenario not in plans_by_scenario:
                 continue
             collector = SCENARIO_COLLECTORS[scenario]
-            result = None
-            attempts = []
-            for plan in plans_by_scenario.get(scenario) or []:
-                params = {
-                    "material_id": next_material_id(task_dir),
-                    "query": plan.query,
-                    "page_limit": http_page_limit,
-                    **plan.params,
-                }
-                try:
-                    result = collector(task_id=task_id, task_dir=task_dir, params=params)
-                except Exception as exc:
-                    result = _exception_result(scenario, exc)
-                collection_results.append(result.model_dump(mode="json"))
-                attempts.append(
-                    {
-                        "query_role": plan.params.get("query_role", ""),
-                        "query": plan.query,
-                        "status": result.status,
-                        "material_count": len(result.materials),
-                        "message_zh": result.message_zh,
-                    }
-                )
-                if result.materials or result.status not in {
-                    "no_results",
-                    "no_valid_materials",
-                    "collection_failed",
-                }:
-                    break
+            result, attempts, raw_results = _collect_scenario_plans(
+                task_id=task_id,
+                task_dir=task_dir,
+                collector=collector,
+                plans=plans_by_scenario.get(scenario) or [],
+                extra_params={"scenario_id": scenario, "page_limit": http_page_limit},
+            )
+            collection_results.extend(raw_results)
             if attempts:
                 append_jsonl(
                     task_dir / "logs" / "events.jsonl",

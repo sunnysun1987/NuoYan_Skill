@@ -22,7 +22,11 @@ DEFAULT_CONFIRMATIONS = {
     "competitor_scope": "",
     "literature_date_range": False,
     "literature_years": 5,
-    "literature_retmax": 100,
+    "literature_profile": "complete_literature",
+    # None means "use the selected literature profile default".
+    # Explicit smaller limits are only honored by lightweight profiles such as
+    # quick_scan; standard complete profiles keep their own minimum depth.
+    "literature_retmax": None,
     "patent_scope": False,
     "primary_query": "",
     "english_keywords": "",

@@ -83,6 +83,8 @@ Formal collection should cover the evidence map:
 - fallback or manually imported evidence when a source is restricted
 - life-science-research plugin evidence when the topic involves biomarkers, proteins, genes, pathways, clinical studies, genetic evidence or public scientific databases
 
+Literature retrieval depth is controlled by `literature_profile`, not by an ad-hoc hidden cap. Standard research uses `complete_literature`, which keeps PubMed, PMC and OpenAlex at 200 records per source by default. `quick_scan` is the lightweight profile for roughly 50 records per source. A stale low `literature_retmax` confirmation cannot silently downgrade complete profiles; use `quick_scan` for a short scan, or use `all` only after explicit risk confirmation.
+
 V2.1 adds a standard source-site baseline and lightweight local knowledge assets:
 
 - `nuoyan source-sites --json` exports built-in source configuration.
@@ -114,6 +116,8 @@ nuoyan verify-package --task-id <task_id> --json
 Key fields include `search_profile_ready`, `scenario_coverage_ready`, `fallback_ready`, `network_ready`, `v21_assets_ready`, `final_review_ready` and `business_ready`.
 
 `business_ready=true` requires more than generated files. The package must have confirmed search scope, complete source coverage or documented fallback, V2.1 source-site and knowledge assets, reviewed evidence cards, and a valid standard delivery folder.
+
+V2.1.8 hardens literature-depth behavior and method-specific retrieval. Standard complete literature profiles keep their default floor, so a stale low `literature_retmax` value cannot reduce PubMed/PMC/OpenAlex to a quick-scan depth. English literature plans now add method expansion layers for fluorescence immunochromatography, lateral flow immunoassay, immunochromatographic assay and point-of-care immunoassay, and the HTML search profile distinguishes retrieval limits from display limits.
 
 V2.1.7 adds source-quality auditing to make `no_results` reviewable rather than treating it as final evidence absence. English literature sources now use core-first query layers for PubMed, PMC and OpenAlex before broad product/methodology terms. Standard delivery records query attempts for HTTP and browser workflows, surfaces high-risk suspected false negatives in the HTML gap tab and Excel alert sheet, and keeps `business_ready=false` when high-risk source-quality issues remain.
 

@@ -69,8 +69,8 @@ nuoyan show-status --task-id <task_id> --json
 
 ## V2.1 文献证据增强流程
 
-1. 确认文献 profile 和召回数量，不允许默认无上限全量抓取。
-2. 运行 PubMed/PMC/OpenAlex 和中文文献场景，英文来源必须先使用英文核心词层级，再使用产品/方法学/样本/预期用途等宽检索层级；保留 PMID、PMCID、DOI、结构化 Abstract、Similar articles、全文/PDF 状态和失败原因。
+1. 确认文献 profile 和召回数量，不允许默认无上限全量抓取。标准完整调研使用 `complete_literature`，英文文献源默认 200 条/源；`quick_scan` 才使用 50 条左右的轻量上限。低 `literature_retmax` 不得静默降低完整调研 profile 的默认深度。
+2. 运行 PubMed/PMC/OpenAlex 和中文文献场景，英文来源必须先使用英文核心词层级，再使用方法学扩展词、产品提示、样本/预期用途等宽检索层级；荧光免疫层析、免疫层析、侧向层析和 POCT 项目必须自动补充 `fluorescence immunochromatographic assay`、`lateral flow immunoassay`、`immunochromatographic assay` 等英文扩展词。保留 PMID、PMCID、DOI、结构化 Abstract、Similar articles、全文/PDF 状态和失败原因。
 3. 标准完整调研先执行 LSR-first gate。课题涉及标志物、蛋白、基因、通路、临床试验、遗传证据，或完整 IVD 检测项目/检测试剂盒/免疫分析/POCT/临床用途画像时，先调用 life-science-research 插件；结果整理为 JSON 后使用 `import-life-science-findings` 回写材料管线。只有用户明确确认“仅做注册/竞品/标准，不做科学数据库证据”时，才允许记录豁免。
 4. 对本地文献清单、腾讯文档导出表或企业共享目录，使用 `import-literature-table` 或 `import-local` 导入。
 5. 运行 `generate-evidence-cards` 生成 V2.1 证据卡，证据卡应包含来源追溯、研发定位、指标事实、关键摘录、局限和补证任务。

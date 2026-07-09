@@ -79,6 +79,16 @@ def test_hcg_query_plan_does_not_enable_alzheimer_specific_source():
     assert plans["pubmed_literature"][0].query == "human chorionic gonadotropin beta hCG immunoassay"
     assert plans["pmc_fulltext"][0].query == "human chorionic gonadotropin beta hCG immunoassay"
     assert plans["openalex_literature"][0].query == "human chorionic gonadotropin beta hCG immunoassay"
+    assert any(
+        plan.params["query_role"] == "openalex_method_keywords"
+        and "fluorescence immunochromatographic assay" in plan.query
+        for plan in plans["openalex_literature"]
+    )
+    assert any(
+        plan.params["query_role"] == "pubmed_method_keywords"
+        and "lateral flow immunoassay" in plan.query
+        for plan in plans["pubmed_literature"]
+    )
     query_text = "\n".join(
         plan.query
         for scenario_plans in plans.values()

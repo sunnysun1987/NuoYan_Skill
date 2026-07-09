@@ -8,6 +8,7 @@ from jinja2 import Template
 from .jsonl import append_jsonl, read_json, read_jsonl
 from .constants import WORKFLOW_VERSION
 from .project_profile import formal_scenarios_for
+from .query_plan import resolved_literature_profile
 from .quality import (
     OPTIONAL_NOT_STARTED_SCENARIOS,
     build_collection_alerts,
@@ -1335,6 +1336,13 @@ def build_expert_decision(
 
 def build_search_profile(task: dict) -> list[dict[str, str]]:
     confirmations = task.get("confirmations") or {}
+    profile = resolved_literature_profile(
+        type(
+            "TaskLike",
+            (),
+            {"topic": task.get("topic", ""), "confirmations": confirmations},
+        )()
+    )
     date_range = confirmations.get("literature_date_range") or {}
     if isinstance(date_range, dict):
         date_text = " 至 ".join(
@@ -1359,6 +1367,14 @@ def build_search_profile(task: dict) -> list[dict[str, str]]:
         ("竞品范围", confirmations.get("competitor_scope", "")),
         ("专利范围", confirmations.get("patent_scope", "")),
         ("文献时间范围", date_text or f"近 {confirmations.get('literature_years', 5)} 年"),
+        ("文献检索 profile", f"{profile.get('label_zh', '')}（{profile.get('profile_id', '')}）"),
+        (
+            "文献单源召回上限",
+            "全量（已确认风险）"
+            if profile.get("retmax") == "all"
+            else f"每个英文文献源默认最多召回 {profile.get('retmax')} 条",
+        ),
+        ("方法学扩展检索", "英文文献源按核心词、方法学扩展词和宽检索词分层执行"),
         ("单渠道展示上限", f"每个检索渠道最多展示 {SOURCE_DISPLAY_LIMIT} 条"),
     ]
     return [{"label": label, "value": str(value or "-")} for label, value in rows]

@@ -7,6 +7,8 @@ from typer.testing import CliRunner
 
 from ivd_research.cli import app
 from ivd_research.confirmations import update_confirmations
+from ivd_research.jsonl import read_jsonl
+from ivd_research.models import Material
 from ivd_research.models import FailureType
 from ivd_research.scenarios.base import ScenarioResult
 from ivd_research.scenarios.cmde_regulatory import collect as collect_cmde
@@ -115,6 +117,68 @@ def test_run_scenario_retries_query_plans(monkeypatch, tmp_path: Path):
     assert "short_cn" in calls
     assert "已按" in result.stdout
     assert "个检索层级重试" in result.stdout
+
+
+def test_run_scenario_merges_multi_layer_materials_with_unique_ids(monkeypatch, tmp_path: Path):
+    state = init_task("beta-hCG 多层文献合并测试", tmp_path)
+    task_dir = Path(state.task_dir)
+    confirmations = {
+        **_hcg_confirmations(),
+        "literature_date_range": "2016-07-09 TO 2026-07-09",
+        "literature_retmax": 50,
+    }
+    update_confirmations(task_dir, confirmations)
+    _import_minimum_life_science(state.task_id, task_dir)
+    calls = []
+
+    def fake_collect(task_id, task_dir, params):
+        role = params["query_role"]
+        calls.append(role)
+        if role not in {"pubmed_core_keywords", "pubmed_method_keywords"}:
+            return ScenarioResult(status=FailureType.NO_RESULTS.value, message_zh=f"no result for {role}")
+        material = Material(
+            material_id=params["material_id"],
+            task_id=task_id,
+            source_scenario="pubmed_literature",
+            material_type="literature",
+            title=f"Evidence for {role}",
+            source_url=f"https://pubmed.ncbi.nlm.nih.gov/{params['material_id']}/",
+            search_keyword_or_query=params["query"],
+            collection_path={"scenario_id": "pubmed_literature"},
+            collection_time="2026-07-09T00:00:00+08:00",
+            adapter_id="pubmed_literature",
+            adapter_version="test",
+            raw_fields={"query_role": role},
+        )
+        return ScenarioResult(status="completed", materials=[material], message_zh=f"hit {role}")
+
+    monkeypatch.setattr(
+        "ivd_research.cli.SCENARIO_COLLECTORS",
+        {"pubmed_literature": fake_collect},
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "run-scenario",
+            "--task-id",
+            state.task_id,
+            "--scenario",
+            "pubmed_literature",
+            "--output-root",
+            str(tmp_path),
+            "--json",
+        ],
+    )
+
+    materials = list(read_jsonl(task_dir / "data" / "materials.jsonl"))
+    ids = [item["material_id"] for item in materials if item["source_scenario"] == "pubmed_literature"]
+
+    assert result.exit_code == 0
+    assert calls[:2] == ["pubmed_core_keywords", "pubmed_method_keywords"]
+    assert len(ids) >= 2
+    assert len(ids) == len(set(ids))
+    assert "合计形成" in result.stdout
 
 
 def test_nmpa_dom_structure_failures_are_collection_failed(monkeypatch, tmp_path: Path):

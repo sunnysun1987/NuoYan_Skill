@@ -150,6 +150,8 @@ REQUIRED_BUSINESS_CONFIRMATIONS = [
     "intended_use",
     "target_region",
     "competitor_scope",
+    "literature_date_range",
+    "literature_profile",
     "patent_scope",
 ]
 
@@ -452,6 +454,17 @@ def missing_business_confirmations(task: dict) -> list[str]:
     confirmations = task.get("confirmations") or {}
     missing = []
     for key in REQUIRED_BUSINESS_CONFIRMATIONS:
+        if key == "literature_date_range":
+            value = confirmations.get("literature_date_range")
+            years = confirmations.get("literature_years")
+            if value in (False, None, "", [], {}) and years in (False, None, "", [], {}):
+                missing.append(key)
+            continue
+        if key == "literature_profile":
+            value = confirmations.get("literature_profile") or "complete_literature"
+            if value in (False, None, "", [], {}):
+                missing.append(key)
+            continue
         value = confirmations.get(key)
         if value in (False, None, "", [], {}):
             missing.append(key)
