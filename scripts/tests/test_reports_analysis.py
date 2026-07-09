@@ -1,4 +1,6 @@
 from ivd_research.reports import (
+    build_business_decision,
+    build_business_action_rows,
     build_metric_fact_rows,
     build_project_analysis_sections,
     build_section_evidence_rows,
@@ -40,6 +42,20 @@ def _literature_material():
         "download_status": "not_available",
         "extracted_text_status": "completed",
         "extracted_text_path": "extracted_text/literature/MAT-000001.txt",
+    }
+
+
+def _hcg_literature_material():
+    return {
+        "material_id": "MAT-000002",
+        "source_scenario": "pubmed_literature",
+        "material_type": "literature",
+        "title": "A Point-of-Care Immunosensor for Human Chorionic Gonadotropin in Clinical Urine Samples",
+        "source_url": "https://pubmed.ncbi.nlm.nih.gov/example/",
+        "raw_fields": {
+            "abstract": "Human chorionic gonadotropin assays support pregnancy-related testing and tumor monitoring workflows.",
+            "keywords": ["human chorionic gonadotropin", "pregnancy", "immunoassay"],
+        },
     }
 
 
@@ -118,6 +134,89 @@ def test_project_analysis_uses_literature_signals_and_current_marker():
     assert "p-Tau181" not in joined
     assert "结构化 Abstract" in joined or "含结构化 Abstract" in joined
     assert "amyloid PET" in joined
+
+
+def test_hcg_project_analysis_does_not_fall_back_to_ad_template():
+    confirmations = {
+        "primary_query": "beta-hCG定量检测试剂盒（荧光免疫层析法）",
+        "english_keywords": "beta hCG quantitative test kit fluorescence immunochromatography",
+        "sample_type": "血清/尿液",
+        "platform": "荧光免疫层析",
+        "methodology": "荧光免疫层析法",
+        "intended_use": "妊娠相关检测/辅助评估",
+    }
+
+    sections = build_project_analysis_sections(
+        literature_materials=[_hcg_literature_material()],
+        regulatory_materials=[],
+        competitor_materials=[],
+        standard_materials=[],
+        patent_materials=[],
+        materials=[_hcg_literature_material()],
+        confirmations=confirmations,
+    )
+    joined = "\n".join(section["analysis"] for section in sections)
+
+    for forbidden in ["AD", "MCI", "PET/CSF", "amyloid PET", "认知障碍", "阿尔茨海默"]:
+        assert forbidden not in joined
+    assert "beta-hCG" in joined or "hCG" in joined
+    assert "妊娠" in joined or "绒毛膜促性腺激素" in joined
+
+
+def test_hcg_business_actions_do_not_use_ad_supplement_tasks():
+    rows = build_business_action_rows(
+        regulatory_materials=[],
+        competitor_materials=[],
+        standard_materials=[],
+        patent_materials=[],
+        literature_materials=[_hcg_literature_material()],
+        scenario_map={},
+        confirmations={
+            "primary_query": "beta-hCG定量检测试剂盒（荧光免疫层析法）",
+            "english_keywords": "beta hCG quantitative test kit fluorescence immunochromatography",
+            "sample_type": "血清/尿液",
+            "platform": "荧光免疫层析",
+            "methodology": "荧光免疫层析法",
+            "intended_use": "妊娠相关检测/辅助评估",
+        },
+    )
+    joined = "\n".join(row["action"] for row in rows)
+
+    for forbidden in ["AD", "阿尔茨海默", "认知障碍"]:
+        assert forbidden not in joined
+    assert "hCG" in joined or "beta-hCG" in joined
+
+
+def test_hcg_business_decision_is_generic_ivd_not_ad_specific():
+    decision = build_business_decision(
+        materials=[_hcg_literature_material()],
+        literature_materials=[_hcg_literature_material()],
+        regulatory_materials=[],
+        competitor_materials=[],
+        standard_materials=[],
+        patent_materials=[],
+        scenario_map={},
+        confirmations={
+            "primary_query": "beta-hCG定量检测试剂盒（荧光免疫层析法）",
+            "english_keywords": "beta hCG quantitative test kit fluorescence immunochromatography",
+            "sample_type": "血清/尿液",
+            "platform": "荧光免疫层析",
+            "methodology": "荧光免疫层析法",
+            "intended_use": "妊娠相关检测/辅助评估",
+        },
+    )
+    joined = "\n".join(
+        [
+            decision["conclusion"],
+            "\n".join(decision["basis"]),
+            "\n".join(decision["cannot_conclude"]),
+            decision["recommendation"],
+        ]
+    )
+
+    for forbidden in ["AD", "阿尔茨海默", "认知障碍", "PET/CSF"]:
+        assert forbidden not in joined
+    assert "hCG" in joined or "beta-hCG" in joined
 
 
 def test_metric_fact_rows_use_chinese_labels_and_links():

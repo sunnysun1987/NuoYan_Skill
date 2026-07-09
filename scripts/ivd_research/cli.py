@@ -31,7 +31,10 @@ from .package import (
     requires_life_science_research,
     verify_package,
 )
-from .query_plan import default_query_plan, scenario_query_plans
+from .query_plan import (
+    default_query_plan,
+    scenario_query_plans,
+)
 from .reports import build_report
 from .review_excel import export_review, import_review
 from .scenarios import (
@@ -96,14 +99,14 @@ CONFIRMATION_QUESTIONS = {
     "task_info": "项目对象是否已确认。",
     "keyword_pool": "核心中文/英文关键词池是否已确认。",
     "collection_scope": "本次是否执行完整立项调研来源采集。",
-    "primary_query": "请确认中文主检索词，例如：AD 目标标志物 血液标志物 IVD。",
+    "primary_query": "请确认中文主检索词，例如：目标检测项目 + 样本类型 + 方法学 + IVD。",
     "english_keywords": "请确认英文主检索式，覆盖靶标、疾病、样本和用途。",
     "sample_type": "请确认样本类型，例如：血浆/血清/全血/指尖血。",
     "platform": "请确认计划平台，例如：化学发光、磁微粒化学发光、ELISA、胶体金、POCT、质谱。",
     "methodology": "请确认方法学/检测原理，例如：免疫夹心法、竞争法、抗体对、校准品体系。",
-    "intended_use": "请确认预期用途，例如：AD 辅助诊断、风险分层、转诊筛查、疗效监测或研究用途。",
+    "intended_use": "请确认预期用途，例如：辅助诊断、风险分层、筛查/分诊、疗效监测或研究用途。",
     "target_region": "请确认目标地区，例如：中国注册优先/中国+欧盟/中国+美国。",
-    "competitor_scope": "请确认竞品范围，例如：目标标志物直接竞品、p-tau/Abeta/tau/NfL 相邻竞品、AD 血液标志物整体。",
+    "competitor_scope": "请确认竞品范围，例如：目标检测项目直接竞品、相邻检测项目、同方法学产品或同临床场景产品。",
     "patent_scope": "请确认专利检索范围，例如：中国/全球/PCT+中美欧日。",
 }
 
@@ -386,7 +389,19 @@ def run_scenario_command(
             json_output=json_output,
         )
     adapter = get_scenario(scenario)
-    plans = scenario_query_plans(state).get(scenario) or default_query_plan(state)
+    plans_by_scenario = scenario_query_plans(state)
+    if scenario in SCENARIO_COLLECTORS and scenario not in plans_by_scenario:
+        result = ScenarioResult(
+            status="deferred",
+            message_zh=f"{adapter.label_zh} 不适用于当前项目检索画像，已跳过。",
+        )
+        if scenario in state.scenario_statuses:
+            state.scenario_statuses[scenario].status = result.status
+            state.scenario_statuses[scenario].last_message = result.message_zh
+            save_task(state)
+        emit(result.model_dump(mode="json"), json_output)
+        return
+    plans = plans_by_scenario.get(scenario) or default_query_plan(state)
     collector = SCENARIO_COLLECTORS.get(scenario)
     attempts = []
     result = None
@@ -804,6 +819,11 @@ def run_full_pipeline_command(
     if not skip_collection:
         plans_by_scenario = scenario_query_plans(state)
         for scenario, collector in SCENARIO_COLLECTORS.items():
+            if scenario != "local_import" and scenario not in plans_by_scenario:
+                if scenario in state.scenario_statuses:
+                    state.scenario_statuses[scenario].status = "deferred"
+                    state.scenario_statuses[scenario].last_message = "该信源不适用于当前项目检索画像，已跳过。"
+                continue
             result = None
             for plan in plans_by_scenario.get(scenario) or default_query_plan(state):
                 params = {

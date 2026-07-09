@@ -839,9 +839,10 @@ def build_business_decision(
     standard_materials: list[dict],
     patent_materials: list[dict],
     scenario_map: dict[str, dict],
+    confirmations: dict | None = None,
 ) -> dict[str, Any]:
     """Build business-facing decision text, not development diagnostics."""
-    if _is_respiratory_project(materials):
+    if _is_respiratory_project(materials, confirmations):
         literature_count = len(literature_materials)
         missing_domains = []
         if not regulatory_materials:
@@ -915,7 +916,7 @@ def build_business_decision(
         }
 
     literature_count = len(literature_materials)
-    literature_signals = build_literature_signal_summary(literature_materials)
+    literature_signals = build_literature_signal_summary(literature_materials, confirmations)
     marker = literature_signals["marker"]
     missing_domains = []
     if not regulatory_materials:
@@ -927,15 +928,21 @@ def build_business_decision(
     if not patent_materials:
         missing_domains.append("专利")
 
+    is_ad_project = _is_ad_biomarker_project(materials, confirmations)
     if literature_count and missing_domains:
         conclusion = (
             "当前已形成文献证据基础，可支持继续推进立项调研，但尚不能形成完整立项建议。"
             "主要原因是注册路径、同类产品、标准和专利风险证据尚未补齐。"
         )
-    elif literature_count:
+    elif literature_count and is_ad_project:
         conclusion = (
             f"当前证据支持 AD 血液 {marker} 方向继续进入立项复核。"
             "建议按“辅助诊断/风险评估/转诊分层”定位推进，先完成注册证字段、专利全文和性能方案复核后再进入正式立项会。"
+        )
+    elif literature_count:
+        conclusion = (
+            f"当前证据支持 {marker} 项目继续进入立项复核。"
+            "建议围绕预期用途、样本类型、平台方法学、参照方法和性能验证方案完成正式复核后再进入立项会。"
         )
     else:
         conclusion = (
@@ -947,7 +954,11 @@ def build_business_decision(
             f"已采集文献材料 {literature_count} 条，覆盖 PubMed、PMC、OpenAlex、中国指南和国际对标资料，可支撑临床价值、目标人群和检测场景复核。"
             f"其中含摘要 {literature_signals['with_abstract']} 条、结构化 Abstract {literature_signals['with_structured']} 条、可解析文本 {literature_signals['extracted']} 份。"
         ),
-        f"{marker} 与 AD 病理、认知下降风险和血液标志物临床应用相关，文献链条可支撑研发继续做方法学和临床性能论证。",
+        (
+            f"{marker} 与 AD 病理、认知下降风险和血液标志物临床应用相关，文献链条可支撑研发继续做方法学和临床性能论证。"
+            if is_ad_project
+            else f"{marker} 相关材料可支撑研发继续围绕目标临床场景、样本类型、平台方法学和性能指标开展立项论证。"
+        ),
     ]
     if competitor_materials:
         basis.append(
@@ -989,13 +1000,17 @@ def build_business_decision(
             ]
         )
 
+    recommendation = (
+        "建议进入立项复核阶段：注册人员核验国内同类注册证字段，研发人员输出化学发光免疫法性能验证方案，医学人员确认适用人群与临床解释边界，专利人员完成 FTO 初筛。四项完成后再形成正式立项结论。"
+        if is_ad_project
+        else "建议进入立项复核阶段：注册人员核验国内同类注册证字段，研发人员输出平台方法学和性能验证方案，医学人员确认适用场景与结果解释边界，专利人员完成 FTO 初筛。四项完成后再形成正式立项结论。"
+    )
+
     return {
         "conclusion": conclusion,
         "basis": basis,
         "cannot_conclude": cannot_conclude,
-        "recommendation": (
-            "建议进入立项复核阶段：注册人员核验国内同类注册证字段，研发人员输出化学发光免疫法性能验证方案，医学人员确认适用人群与临床解释边界，专利人员完成 FTO 初筛。四项完成后再形成正式立项结论。"
-        ),
+        "recommendation": recommendation,
     }
 
 
@@ -1360,6 +1375,58 @@ def _is_respiratory_project(
     )
 
 
+def _is_ad_biomarker_project(
+    materials: list[dict],
+    confirmations: dict | None = None,
+    topic: str = "",
+) -> bool:
+    text = _project_text(materials, confirmations, topic)
+    return any(
+        term in text
+        for term in [
+            "alzheimer",
+            "阿尔茨海默",
+            "认知障碍",
+            "痴呆",
+            "mci",
+            "p-tau",
+            "ptau",
+            "tau217",
+            "tau181",
+            "aβ",
+            "abeta",
+            "amyloid",
+        ]
+    ) or bool(re.search(r"\bad\b", text))
+
+
+def _project_domain(
+    materials: list[dict],
+    confirmations: dict | None = None,
+    topic: str = "",
+) -> str:
+    text = _project_text(materials, confirmations, topic)
+    if _is_respiratory_project(materials, confirmations, topic):
+        return "respiratory"
+    if _is_ad_biomarker_project(materials, confirmations, topic):
+        return "ad_biomarker"
+    if any(
+        term in text
+        for term in [
+            "beta-hcg",
+            "β-hcg",
+            "β hcg",
+            "hcg",
+            "human chorionic gonadotropin",
+            "绒毛膜促性腺激素",
+            "妊娠",
+            "pregnancy",
+        ]
+    ):
+        return "hcg"
+    return "generic_ivd"
+
+
 def _target_marker(materials: list[dict], confirmations: dict | None = None) -> str:
     profile_text = ""
     if confirmations:
@@ -1385,6 +1452,18 @@ def _target_marker(materials: list[dict], confirmations: dict | None = None) -> 
         return "p-Tau217"
     if "p-tau181" in profile_text or "ptau181" in profile_text or "tau181" in profile_text:
         return "p-Tau181"
+    if any(
+        term in profile_text
+        for term in [
+            "beta-hcg",
+            "β-hcg",
+            "β hcg",
+            "hcg",
+            "human chorionic gonadotropin",
+            "绒毛膜促性腺激素",
+        ]
+    ):
+        return "beta-hCG"
     text = " ".join(item.get("title", "") for item in materials[:200]).lower()
     if any(term in text for term in ["甲型流感", "乙型流感", "甲流", "乙流", "influenza a", "influenza b", "flu a", "flu b"]):
         return "甲型/乙型流感"
@@ -1398,6 +1477,18 @@ def _target_marker(materials: list[dict], confirmations: dict | None = None) -> 
         return "p-Tau181"
     if "aβ" in text or "abeta" in text or "amyloid beta" in text:
         return "Aβ"
+    if any(
+        term in text
+        for term in [
+            "beta-hcg",
+            "β-hcg",
+            "β hcg",
+            "hcg",
+            "human chorionic gonadotropin",
+            "绒毛膜促性腺激素",
+        ]
+    ):
+        return "beta-hCG"
     return "目标标志物"
 
 
@@ -1697,6 +1788,216 @@ def build_respiratory_project_analysis_sections(
     ]
 
 
+def _generic_signal_sentence(signals: dict[str, Any]) -> str:
+    topics = signals.get("topics", {})
+    return (
+        f"文献证据共 {signals.get('total', 0)} 条，其中 PubMed {signals.get('pubmed', 0)} 条、PMC/开放全文 {signals.get('pmc', 0)} 条；"
+        f"已解析文本 {signals.get('extracted', 0)} 份，含摘要 {signals.get('with_abstract', 0)} 条，含结构化 Abstract {signals.get('with_structured', 0)} 条。"
+        f"诊断/鉴别诊断相关 {topics.get('diagnosis', 0)} 条，筛查/分诊相关 {topics.get('screening', 0)} 条，"
+        f"风险预测/进展相关 {topics.get('risk', 0)} 条，免疫检测/平台方法相关 {topics.get('immunoassay', 0)} 条，"
+        f"性能评价相关 {topics.get('auc', 0)} 条。"
+    )
+
+
+def build_generic_project_analysis_sections(
+    *,
+    literature_materials: list[dict],
+    regulatory_materials: list[dict],
+    competitor_materials: list[dict],
+    standard_materials: list[dict],
+    patent_materials: list[dict],
+    materials: list[dict],
+    confirmations: dict | None = None,
+) -> list[dict[str, Any]]:
+    signals = build_literature_signal_summary(literature_materials, confirmations)
+    marker = signals["marker"]
+    topics = signals["topics"]
+    examples = signals["examples"]
+    signal_text = _generic_signal_sentence(signals)
+    literature_titles = _material_title_join(literature_materials)
+    competitor_titles = _material_title_join(competitor_materials)
+    regulatory_titles = _material_title_join(regulatory_materials)
+    standard_titles = _material_title_join(standard_materials)
+    patent_titles = _material_title_join(patent_materials)
+    sample_type = str((confirmations or {}).get("sample_type") or "已确认样本类型")
+    platform = str((confirmations or {}).get("platform") or (confirmations or {}).get("methodology") or "已确认平台/方法学")
+    intended_use = str((confirmations or {}).get("intended_use") or "已确认预期用途")
+    pregnancy_context = (
+        "妊娠相关检测、异位妊娠辅助评估、滋养细胞疾病监测和部分肿瘤相关场景"
+        if _project_domain(materials, confirmations) == "hcg"
+        else intended_use
+    )
+    return [
+        {
+            "id": "analysis-1",
+            "title": "临床意义",
+            "analysis": (
+                f"{signal_text} 综合题名、摘要和全文线索看，{marker} 的项目价值应围绕目标临床场景、样本类型、检测平台和结果解释边界展开。"
+                f"当前材料更适合用于判断 {pregnancy_context} 中的临床需求和验证重点。"
+            ),
+            "evidence": f"{examples['diagnosis']}；{literature_titles}",
+            "gap": "需要按目标场景进一步提取灵敏度、特异性、cut-off、线性范围、样本量和参照方法。",
+        },
+        {
+            "id": "analysis-2",
+            "title": "临床应用定位",
+            "analysis": (
+                f"诊断/鉴别诊断相关文献 {topics.get('diagnosis', 0)} 条，筛查/分诊相关 {topics.get('screening', 0)} 条，风险预测/进展相关 {topics.get('risk', 0)} 条。"
+                f"{marker} 应按“{intended_use}”定位，并在说明书中明确适用人群、样本类型、结果解释和不能覆盖的临床边界。"
+            ),
+            "evidence": f"诊断线索：{examples['diagnosis']}；风险线索：{examples['risk']}",
+            "gap": "需要医学和注册人员确认预期用途表述、阳性/阴性解释、复测建议和联合检查建议。",
+        },
+        {
+            "id": "analysis-3",
+            "title": "目标使用场景",
+            "analysis": (
+                f"当前确认的样本/方法画像为 {sample_type}、{platform}。目标使用场景应从临床科室入口、检测时机、报告周转时间、"
+                "是否用于急诊/门诊/住院流程以及是否需要定量趋势监测等维度拆分。"
+            ),
+            "evidence": literature_titles,
+            "gap": "需要补充真实临床流程、检测频次、报告解释、复测策略和科室使用场景。",
+        },
+        {
+            "id": "analysis-4",
+            "title": "目标人群",
+            "analysis": (
+                f"目标人群不能只由检索题名推断，应结合 {marker} 的预期用途、样本采集条件、禁忌或干扰因素、"
+                "临床路径和同类产品说明书共同确定。"
+            ),
+            "evidence": literature_titles,
+            "gap": "需要按人群、样本来源、疾病/生理状态和检测时间窗形成适用性说明。",
+        },
+        {
+            "id": "analysis-5",
+            "title": "诊疗路径",
+            "analysis": (
+                f"{marker} 在诊疗路径中的位置应通过参照方法、联合检查、复测策略和报告解释规则确定。"
+                "自动检索材料只能提供线索，不能替代临床专家对实际路径的确认。"
+            ),
+            "evidence": examples["reference"],
+            "gap": "需要确认目标科室、前置检查、后续处置、复测间隔和结果解释模板。",
+        },
+        {
+            "id": "analysis-6",
+            "title": "金标准与参照方法",
+            "analysis": (
+                f"研发方案应为 {marker} 明确定量或定性参照方法，包括同类已上市产品、实验室参考方法、临床判定标准和样本配对策略。"
+                "不同用途下的参照标准和一致性指标不应混用。"
+            ),
+            "evidence": literature_titles,
+            "gap": "需要定义性能评价中的参照标准、样本量、统计指标和一致性评价方法。",
+        },
+        {
+            "id": "analysis-7",
+            "title": "指南与共识",
+            "analysis": (
+                f"若 {marker} 对应场景已有指南、共识或临床路径文件，应优先用于界定检测目的、适用人群和报告解释边界。"
+                "中文指南/全文来源未命中时，不能直接用国际文献替代本土注册和临床使用语境。"
+            ),
+            "evidence": literature_titles,
+            "gap": "需要补齐指南、共识、临床路径和本土使用建议。",
+        },
+        {
+            "id": "analysis-8",
+            "title": "专家和组织意见",
+            "analysis": (
+                "现阶段专家和组织意见主要来自指南、综述、协会文件和高质量临床研究。"
+                f"这些材料可用于初步判断 {marker} 的临床解释边界，但仍需企业内部医学、注册、研发和市场人员复核。"
+            ),
+            "evidence": literature_titles,
+            "gap": "需要补充临床专家、注册人员、研发负责人和产品负责人的确认意见。",
+        },
+        {
+            "id": "analysis-9",
+            "title": "市场准入与收费",
+            "analysis": (
+                f"文献证据可以证明 {marker} 的临床关注度和技术可行线索，但不能直接证明收费、准入和商业化可行性。"
+                "应单独采集医院项目立项、收费编码、竞品价格、套餐组合和渠道资料。"
+            ),
+            "evidence": "暂无直接材料",
+            "gap": "需要补充收费项目、地区准入、采购渠道、竞品价格和目标医院层级。",
+        },
+        {
+            "id": "analysis-10",
+            "title": "市场定位",
+            "analysis": (
+                f"{marker} 的市场定位应由临床刚需、同类产品格局、方法学差异、检测成本和报告解释难度共同决定。"
+                "当前自动材料更适合作为定位初筛，不能直接替代市场调研。"
+            ),
+            "evidence": competitor_titles,
+            "gap": "需要补充目标医院层级、科室入口、检测套餐组合和商业化路径。",
+        },
+        {
+            "id": "analysis-11",
+            "title": "竞争格局",
+            "analysis": (
+                f"已导入 {len(competitor_materials)} 条竞品/同类注册线索。若 NMPA 采集未完成，竞争格局只能作为初步判断，"
+                f"重点应核验 {marker} 直接竞品、相邻检测项目、平台方法学和样本类型差异。"
+            ),
+            "evidence": competitor_titles,
+            "gap": "NMPA 官方数据库字段、注册证状态、说明书和有效期需要人工核验。",
+        },
+        {
+            "id": "analysis-12",
+            "title": "出口与注册",
+            "analysis": (
+                f"已导入 {len(regulatory_materials)} 条法规/注册材料。对 {marker} 项目，注册论证应拆分为分类界定、预期用途、样本类型、"
+                "临床评价路径、同品种比对可能性和性能验证要求。"
+            ),
+            "evidence": regulatory_titles,
+            "gap": "需要确认分类编码、临床评价路径、同品种比对可能性和注册申报资料清单。",
+        },
+        {
+            "id": "analysis-13",
+            "title": "技术可行性",
+            "analysis": (
+                f"免疫检测/ELISA/化学发光/层析等平台相关文献 {topics.get('immunoassay', 0)} 条，性能评价相关 {topics.get('auc', 0)} 条。"
+                f"{marker} 的技术可行性应围绕检测限、线性范围、精密度、特异性、交叉反应、干扰、hook 效应和样本稳定性验证。"
+            ),
+            "evidence": "；".join([examples["technology"], competitor_titles]),
+            "gap": "需要研发输出 LoD/LoQ、线性、精密度、hook、交叉反应、干扰和稳定性验证方案。",
+        },
+        {
+            "id": "analysis-14",
+            "title": "参考物质",
+            "analysis": (
+                f"{marker} 的定量或半定量转化依赖校准品、质控品、溯源体系和平台一致性。"
+                "若参考物质和校准体系证据不足，后续可能影响批间一致性、不同平台可比性和判定阈值固化。"
+            ),
+            "evidence": standard_titles,
+            "gap": "需要确认抗原/抗体、校准品、质控品、溯源体系和批间一致性方案。",
+        },
+        {
+            "id": "analysis-15",
+            "title": "安全要求",
+            "analysis": (
+                f"{marker} 检测的安全风险主要来自假阳性、假阴性、灰区结果、干扰因素和过度解释。"
+                "报告应明确适用限制、复测建议和不能单独承担的临床判断。"
+            ),
+            "evidence": regulatory_titles,
+            "gap": "需要形成风险分析、适用限制、警示语和结果解释模板。",
+        },
+        {
+            "id": "analysis-16",
+            "title": "原材料可获得性",
+            "analysis": (
+                f"{marker} 方法学转化依赖稳定抗原/抗体、标记体系、校准品、质控材料和低背景检测体系。"
+                "需要同步评估关键原料供应、批间一致性、成本和平台适配风险。"
+            ),
+            "evidence": patent_titles,
+            "gap": "需要补充关键抗原/抗体、标记物、耗材、校准品和质控品供应风险。",
+        },
+        {
+            "id": "analysis-17",
+            "title": "其他发现 / 待归类线索",
+            "analysis": "当前最大剩余缺口集中在注册字段核验、专利全文/FTO、中文全文、全文/PDF 可追溯材料和业务专家复核。",
+            "evidence": f"当前材料总数 {len(materials)} 条",
+            "gap": "应将缺口转为 Excel 补证任务，逐项关闭后再形成正式立项结论。",
+        },
+    ]
+
+
 def build_project_analysis_sections(
     *,
     literature_materials: list[dict],
@@ -1710,6 +2011,16 @@ def build_project_analysis_sections(
     topic = str((confirmations or {}).get("primary_query") or "")
     if _is_respiratory_project(materials, confirmations, topic):
         return build_respiratory_project_analysis_sections(
+            literature_materials=literature_materials,
+            regulatory_materials=regulatory_materials,
+            competitor_materials=competitor_materials,
+            standard_materials=standard_materials,
+            patent_materials=patent_materials,
+            materials=materials,
+            confirmations=confirmations,
+        )
+    if not _is_ad_biomarker_project(materials, confirmations, topic):
+        return build_generic_project_analysis_sections(
             literature_materials=literature_materials,
             regulatory_materials=regulatory_materials,
             competitor_materials=competitor_materials,
@@ -1907,11 +2218,14 @@ def build_business_action_rows(
     patent_materials: list[dict],
     literature_materials: list[dict],
     scenario_map: dict[str, dict],
+    confirmations: dict | None = None,
 ) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
-    is_respiratory = _is_respiratory_project(literature_materials + regulatory_materials + competitor_materials + standard_materials + patent_materials)
+    all_materials = literature_materials + regulatory_materials + competitor_materials + standard_materials + patent_materials
+    is_respiratory = _is_respiratory_project(all_materials, confirmations)
+    is_ad_project = _is_ad_biomarker_project(all_materials, confirmations)
+    marker = _target_marker(literature_materials, confirmations)
     if not competitor_materials:
-        marker = _target_marker(literature_materials)
         rows.append(
             {
                 "priority": "P0",
@@ -1919,7 +2233,11 @@ def build_business_action_rows(
                 "action": (
                     f"补查 NMPA 同类产品，确认是否已有 {marker} 或相近呼吸道病原体 IVD 注册路径/产品。"
                     if is_respiratory
-                    else f"补查 NMPA 同类产品，确认是否已有 AD 血液 {marker} 或相近 AD 标志物 IVD 注册路径/产品。"
+                    else (
+                        f"补查 NMPA 同类产品，确认是否已有 AD 血液 {marker} 或相近 AD 标志物 IVD 注册路径/产品。"
+                        if is_ad_project
+                        else f"补查 NMPA 同类产品，确认是否已有 {marker} 或相近检测项目 IVD 注册路径/产品。"
+                    )
                 ),
                 "acceptance": "形成同类产品清单，至少包含注册证编号、注册人、方法学、样本类型、预期用途和有效期。",
             }
@@ -1947,7 +2265,11 @@ def build_business_action_rows(
             {
                 "priority": "P1",
                 "owner": "研发 / 知识产权",
-                "action": f"补查 {marker}、血液检测、免疫检测平台和 AD 辅助诊断相关专利。",
+                "action": (
+                    f"补查 {marker}、血液检测、免疫检测平台和 AD 辅助诊断相关专利。"
+                    if is_ad_project
+                    else f"补查 {marker}、目标样本、目标方法学和同类 IVD 试剂盒相关专利。"
+                ),
                 "acceptance": "形成高相关专利清单，并标注可能阻碍、可绕开点和需法务复核项。",
             }
         )
@@ -1956,7 +2278,11 @@ def build_business_action_rows(
             {
                 "priority": "P1",
                 "owner": "医学 / 研发",
-                "action": "复核已采集文献，筛出真正支持目标血液标志物 IVD 立项的核心证据。",
+                "action": (
+                    "复核已采集文献，筛出真正支持目标血液标志物 IVD 立项的核心证据。"
+                    if is_ad_project
+                    else "复核已采集文献，筛出真正支持目标检测项目 IVD 立项的核心证据。"
+                ),
                 "acceptance": "每条纳入证据明确对应临床意义、目标人群、诊疗路径、性能指标或技术可行性。",
             }
         )
@@ -1980,11 +2306,15 @@ def build_evidence_gap_rows(
     standard_materials: list[dict],
     patent_materials: list[dict],
     scenario_map: dict[str, dict],
+    confirmations: dict | None = None,
 ) -> list[dict[str, str]]:
     """Business-facing evidence gaps and supplement tasks."""
+    all_materials = literature_materials + regulatory_materials + competitor_materials + standard_materials + patent_materials
     is_respiratory = _is_respiratory_project(
-        literature_materials + regulatory_materials + competitor_materials + standard_materials + patent_materials
+        all_materials,
+        confirmations,
     )
+    is_ad_project = _is_ad_biomarker_project(all_materials, confirmations)
     sample_gap = (
         {
             "gap": "样本类型证据需要按鼻咽拭子、口咽拭子、鼻拭子等呼吸道样本拆分",
@@ -1996,10 +2326,18 @@ def build_evidence_gap_rows(
         }
         if is_respiratory
         else {
-            "gap": "样本类型证据需要按血浆、血清、全血拆分",
-            "current_basis": "当前检索画像包含血浆 / 血清 / 全血，但材料中的样本类型尚未统一归类。",
-            "missing_evidence": "各样本类型的稳定性、抗凝剂、冻融、基质效应、干扰和平台适配证据。",
-            "impact": "影响产品样本声明、采血管选择和分析性能验证。",
+            "gap": (
+                "样本类型证据需要按血浆、血清、全血拆分"
+                if is_ad_project
+                else "样本类型证据需要按本项目确认样本拆分"
+            ),
+            "current_basis": (
+                "当前检索画像包含血浆 / 血清 / 全血，但材料中的样本类型尚未统一归类。"
+                if is_ad_project
+                else "当前检索画像已包含目标样本类型，但材料中的样本适用性尚未统一归类。"
+            ),
+            "missing_evidence": "各样本类型的稳定性、采集条件、保存运输、基质效应、干扰和平台适配证据。",
+            "impact": "影响产品样本声明、采样器具选择和分析性能验证。",
             "owner": "研发 / 医学",
             "acceptance": "形成样本类型对比表，并明确首版产品建议样本。",
         }
@@ -2019,7 +2357,11 @@ def build_evidence_gap_rows(
             "missing_evidence": (
                 "LoD、阳性符合率、阴性符合率、灵敏度、特异性、交叉反应、干扰、样本量、参照方法、平台/方法学。"
                 if is_respiratory
-                else "AUC、灵敏度、特异性、cut-off、样本量、疾病分期、参照方法、平台/方法学。"
+                else (
+                    "AUC、灵敏度、特异性、cut-off、样本量、疾病分期、参照方法、平台/方法学。"
+                    if is_ad_project
+                    else "LoD/LoQ、线性范围、灵敏度、特异性、cut-off、样本量、参照方法、平台/方法学。"
+                )
             ),
             "impact": "影响是否值得立项、性能目标设定和临床试验方案设计。",
             "owner": "医学 / 研发",
@@ -2029,7 +2371,7 @@ def build_evidence_gap_rows(
         {
             "gap": "专利全文和 FTO 判断不足",
             "current_basis": f"已形成 {len(patent_materials)} 条专利检索/风险线索。",
-            "missing_evidence": "高相关专利全文、权利要求、法律状态、地域、到期日、抗体表位和平台绑定风险。",
+            "missing_evidence": "高相关专利全文、权利要求、法律状态、地域、到期日、核心原料/反应体系和平台绑定风险。",
             "impact": "影响自由实施、研发路线选择和上市风险。",
             "owner": "知识产权 / 研发",
             "acceptance": "输出高相关专利清单和 FTO 初筛意见。",
@@ -3001,6 +3343,7 @@ def build_standard_report(task_dir: Path, output: Path | None = None) -> dict:
         standard_materials=standard_materials,
         patent_materials=patent_materials,
         scenario_map=scenario_map,
+        confirmations=task.get("confirmations") or {},
     )
     action_rows = build_business_action_rows(
         regulatory_materials=regulatory_materials,
@@ -3009,6 +3352,7 @@ def build_standard_report(task_dir: Path, output: Path | None = None) -> dict:
         patent_materials=patent_materials,
         literature_materials=literature_materials,
         scenario_map=scenario_map,
+        confirmations=task.get("confirmations") or {},
     )
     gap_rows = build_evidence_gap_rows(
         literature_materials=literature_materials,
@@ -3017,6 +3361,7 @@ def build_standard_report(task_dir: Path, output: Path | None = None) -> dict:
         standard_materials=standard_materials,
         patent_materials=patent_materials,
         scenario_map=scenario_map,
+        confirmations=task.get("confirmations") or {},
     )
     registration_materials = (
         regulatory_materials + competitor_materials + standard_materials + patent_materials

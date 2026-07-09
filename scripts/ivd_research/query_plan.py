@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 from datetime import date
+import re
 from typing import Any
 
 
@@ -143,6 +144,39 @@ def _append_terms(base: str, *values: Any) -> str:
         if term and term not in seen:
             seen.append(term)
     return " ".join(seen)
+
+
+def requires_wiley_alzheimer_source(state: Any) -> bool:
+    confirmations = getattr(state, "confirmations", {}) or {}
+    text = " ".join(
+        str(value or "")
+        for value in [
+            getattr(state, "topic", ""),
+            confirmations.get("primary_query", ""),
+            confirmations.get("english_keywords", ""),
+            confirmations.get("chinese_synonyms", ""),
+            confirmations.get("intended_use", ""),
+            confirmations.get("competitor_scope", ""),
+            confirmations.get("patent_scope", ""),
+        ]
+    ).lower()
+    return any(
+        term in text
+        for term in [
+            "alzheimer",
+            "阿尔茨海默",
+            "认知障碍",
+            "痴呆",
+            "mci",
+            "p-tau",
+            "ptau",
+            "tau217",
+            "tau181",
+            "aβ",
+            "abeta",
+            "amyloid",
+        ]
+    ) or bool(re.search(r"\bad\b", text))
 
 
 def _cn_business_query(state: Any) -> str:
@@ -334,7 +368,7 @@ def scenario_query_plans(state: Any) -> dict[str, list[ScenarioQueryPlan]]:
         common_broad.append(ScenarioQueryPlan(query=short, params={"query_role": "short_cn"}))
     if primary and primary not in {broad, short}:
         common_broad.append(ScenarioQueryPlan(query=primary, params={"query_role": "primary_cn"}))
-    return {
+    plans = {
         "cmde_regulatory": common_broad,
         "standards_current": common_broad,
         "nmpa_competitor": [
@@ -359,12 +393,6 @@ def scenario_query_plans(state: Any) -> dict[str, list[ScenarioQueryPlan]]:
         "yiigle_zhjyyxzz": _journal_plans(state),
         "yiigle_zhsjkzz": _journal_plans(state),
         "cma_lab_management": _journal_plans(state),
-        "wiley_alz": [
-            ScenarioQueryPlan(
-                query=_en_business_query(state),
-                params={"query_role": "english_keywords"},
-            )
-        ],
         "pubmed_literature": [
             ScenarioQueryPlan(
                 query=_english_primary_query(state),
@@ -414,6 +442,14 @@ def scenario_query_plans(state: Any) -> dict[str, list[ScenarioQueryPlan]]:
             )
         ],
     }
+    if requires_wiley_alzheimer_source(state):
+        plans["wiley_alz"] = [
+            ScenarioQueryPlan(
+                query=_en_business_query(state),
+                params={"query_role": "english_keywords"},
+            )
+        ]
+    return plans
 
 
 def default_query_plan(state: Any) -> list[ScenarioQueryPlan]:
