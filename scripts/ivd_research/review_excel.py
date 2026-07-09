@@ -214,6 +214,7 @@ def export_review(task_dir: Path) -> dict:
     alerts_ws.append(["材料数", collection_alerts["material_count"]])
     alerts_ws.append(["证据卡数", collection_alerts["evidence_card_count"]])
     alerts_ws.append(["失败场景数", collection_alerts["failed_count"]])
+    alerts_ws.append(["公开兜底部分补齐场景数", collection_alerts.get("fallback_covered_count", 0)])
     alerts_ws.append(["未启动场景数", collection_alerts["not_started_count"]])
     alerts_ws.append([])
     alerts_ws.append(["必须先处理的问题", ""])

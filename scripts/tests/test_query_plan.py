@@ -51,7 +51,8 @@ def test_from_to_date_range_and_short_browser_retry_plans():
         "to": "2026-06-17",
     }
     assert len(plans["cmde_regulatory"]) >= 2
-    assert plans["cmde_regulatory"][1].params["query_role"] == "short_cn"
+    assert plans["cmde_regulatory"][0].params["query_role"] == "core_cn"
+    assert any(plan.params["query_role"] == "broad_cn" for plan in plans["cmde_regulatory"])
 
 
 def test_hcg_query_plan_does_not_enable_alzheimer_specific_source():
@@ -68,6 +69,11 @@ def test_hcg_query_plan_does_not_enable_alzheimer_specific_source():
 
     assert "wiley_alz" not in plans
     assert "yiigle_zhsjkzz" not in plans
+    assert plans["standards_current"][0].query == "人绒毛膜促性腺激素"
+    assert plans["standards_current"][0].params["query_role"] == "core_cn"
+    assert "serum" not in plans["openalex_literature"][0].query.lower()
+    assert "urine" not in plans["openalex_literature"][0].query.lower()
+    assert plans["openalex_literature"][0].query == "human chorionic gonadotropin beta hCG immunoassay"
     query_text = "\n".join(
         plan.query
         for scenario_plans in plans.values()

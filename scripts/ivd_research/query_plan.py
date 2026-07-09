@@ -83,6 +83,64 @@ CN_TO_EN_KEYWORDS = {
     "支原体肺炎": "Mycoplasma pneumoniae pneumonia",
 }
 
+SOURCE_SAFE_STOP_TERMS = [
+    *METHOD_QUERY_TERMS,
+    *RESEARCH_STOP_WORDS,
+    "定量",
+    "定性",
+    "半定量",
+    "荧光免疫层析法",
+    "荧光免疫层析",
+    "免疫层析法",
+    "免疫层析",
+    "双抗体夹心法",
+    "双抗夹心",
+    "POCT",
+    "poct",
+    "平台",
+    "仪器",
+    "辅助诊断",
+    "辅助判断",
+    "风险提示",
+    "动态监测",
+    "血清",
+    "血浆",
+    "全血",
+    "尿液",
+    "样本",
+    "作为",
+    "补充",
+    "对照",
+    "优先",
+]
+
+OPENALEX_STOP_TOKENS = {
+    "and",
+    "or",
+    "the",
+    "a",
+    "an",
+    "kit",
+    "kits",
+    "test",
+    "testing",
+    "quantitative",
+    "qualitative",
+    "point-of-care",
+    "point",
+    "care",
+    "poc",
+    "poct",
+    "serum",
+    "plasma",
+    "whole",
+    "blood",
+    "urine",
+    "diagnosis",
+    "screening",
+    "monitoring",
+}
+
 
 @dataclass(frozen=True)
 class ScenarioQueryPlan:
@@ -146,6 +204,104 @@ def _append_terms(base: str, *values: Any) -> str:
         if term and term not in seen:
             seen.append(term)
     return " ".join(seen)
+
+
+def _dedupe(values: list[str]) -> list[str]:
+    seen: list[str] = []
+    for value in values:
+        clean = " ".join(str(value or "").split()).strip()
+        if clean and clean not in seen:
+            seen.append(clean)
+    return seen
+
+
+def _profile_text(state: Any) -> str:
+    return _append_terms(
+        _primary_query(state),
+        _broad_query(state),
+        _confirmation(state, "chinese_synonyms", ""),
+        _confirmation(state, "english_keywords", ""),
+        _confirmation(state, "english_method_keywords", ""),
+    )
+
+
+def _strip_source_noise(text: str) -> str:
+    clean = str(text or "")
+    for term in SOURCE_SAFE_STOP_TERMS:
+        clean = clean.replace(term, " ")
+    clean = re.sub(r"[；;、，,。:：/|()（）\[\]【】\"'“”]+", " ", clean)
+    return " ".join(clean.split())
+
+
+def _hcg_core_queries(text: str) -> list[str]:
+    lowered = text.lower()
+    if not any(
+        signal in lowered
+        for signal in [
+            "hcg",
+            "β-hcg",
+            "beta-hcg",
+            "beta hcg",
+            "chorionic gonadotropin",
+        ]
+    ) and "绒毛膜促性腺激素" not in text:
+        return []
+    return ["人绒毛膜促性腺激素", "β-hCG", "hCG"]
+
+
+def _core_chinese_queries(state: Any, *, max_candidates: int = 4) -> list[str]:
+    text = _profile_text(state)
+    hcg_queries = _hcg_core_queries(text)
+    if hcg_queries:
+        return hcg_queries[:max_candidates]
+
+    cleaned = _strip_source_noise(_broad_query(state) or _primary_query(state))
+    parts = re.findall(r"[一-鿿A-Za-z0-9α-ωΑ-ΩβΒτΤ\-]+", cleaned)
+    core: list[str] = []
+    for part in parts:
+        token = part.strip("-")
+        if not token:
+            continue
+        lower = token.lower()
+        if lower in {item.lower() for item in SOURCE_SAFE_STOP_TERMS}:
+            continue
+        if token.upper() in {"IVD", "POCT"}:
+            continue
+        if len(token) == 1 and not re.search(r"[A-Za-z0-9]", token):
+            continue
+        core.append(token)
+        if len(core) >= 3:
+            break
+    candidates: list[str] = []
+    if core:
+        candidates.append(" ".join(core[:2]))
+        candidates.append(" ".join(core[:3]))
+    short = _short_query(cleaned, max_terms=2)
+    if short:
+        candidates.append(short)
+    broad = _broad_query(state)
+    if broad:
+        candidates.append(broad)
+    return _dedupe(candidates)[:max_candidates]
+
+
+def _openalex_core_query(state: Any) -> str:
+    text = _profile_text(state)
+    if _hcg_core_queries(text):
+        return "human chorionic gonadotropin beta hCG immunoassay"
+
+    query = _openalex_query(state)
+    tokens: list[str] = []
+    for token in re.findall(r"[A-Za-z0-9α-ωΑ-ΩβΒτΤ\-]+", query):
+        normalized = token.strip("-")
+        lower = normalized.lower()
+        if not normalized or lower in OPENALEX_STOP_TOKENS:
+            continue
+        if lower not in {item.lower() for item in tokens}:
+            tokens.append(normalized)
+        if len(" ".join(tokens)) >= 140 or len(tokens) >= 12:
+            break
+    return " ".join(tokens) or _english_primary_query(state)
 
 
 def requires_wiley_alzheimer_source(state: Any) -> bool:
@@ -308,8 +464,13 @@ def _short_query(query: str, max_terms: int = 3) -> str:
 def _journal_plans(state: Any) -> list[ScenarioQueryPlan]:
     primary = _primary_query(state)
     broad = _cn_business_query(state)
+    core_queries = _core_chinese_queries(state)
     short = _short_query(broad, max_terms=3)
-    plans = [ScenarioQueryPlan(query=broad, params={"query_role": "broad_cn"})]
+    plans = [
+        ScenarioQueryPlan(query=query, params={"query_role": "core_cn"})
+        for query in core_queries
+    ]
+    plans.append(ScenarioQueryPlan(query=broad, params={"query_role": "broad_cn"}))
     # Add a short-query fallback for academic journal search engines
     if short and short != broad:
         plans.append(
@@ -318,6 +479,67 @@ def _journal_plans(state: Any) -> list[ScenarioQueryPlan]:
     if primary and primary != broad:
         plans.append(
             ScenarioQueryPlan(query=primary, params={"query_role": "method_specific_cn"})
+        )
+    deduped: list[ScenarioQueryPlan] = []
+    seen: set[str] = set()
+    for plan in plans:
+        if plan.query and plan.query not in seen:
+            deduped.append(plan)
+            seen.add(plan.query)
+    return deduped
+
+
+def _source_safe_cn_plans(state: Any, *, include_product_hint: bool = True) -> list[ScenarioQueryPlan]:
+    primary = _primary_query(state)
+    broad = _cn_business_query(state)
+    core_queries = _core_chinese_queries(state)
+    plans = [
+        ScenarioQueryPlan(query=query, params={"query_role": "core_cn"})
+        for query in core_queries
+    ]
+    if include_product_hint:
+        for query in core_queries[:2]:
+            hinted = _append_terms(query, "测定试剂盒")
+            plans.append(
+                ScenarioQueryPlan(query=hinted, params={"query_role": "core_product_cn"})
+            )
+    short = _short_query(_strip_source_noise(broad), max_terms=3)
+    if short:
+        plans.append(ScenarioQueryPlan(query=short, params={"query_role": "short_cn"}))
+    if broad:
+        plans.append(ScenarioQueryPlan(query=broad, params={"query_role": "broad_cn"}))
+    if primary and primary != broad:
+        plans.append(ScenarioQueryPlan(query=primary, params={"query_role": "primary_cn"}))
+    deduped: list[ScenarioQueryPlan] = []
+    seen: set[str] = set()
+    for plan in plans:
+        if plan.query and plan.query not in seen:
+            deduped.append(plan)
+            seen.add(plan.query)
+    return deduped
+
+
+def _openalex_plans(state: Any, literature_profile: dict[str, Any], literature_date_range: Any) -> list[ScenarioQueryPlan]:
+    retmax = literature_profile["retmax"]
+    common_params = {
+        "retmax": retmax,
+        "date_range": literature_date_range,
+        "literature_profile": literature_profile["profile_id"],
+    }
+    core = _openalex_core_query(state)
+    broad = _openalex_query(state)
+    plans = [
+        ScenarioQueryPlan(
+            query=core,
+            params={"query_role": "openalex_core_keywords", **common_params},
+        )
+    ]
+    if broad and broad != core:
+        plans.append(
+            ScenarioQueryPlan(
+                query=broad,
+                params={"query_role": "openalex_broad_keywords", **common_params},
+            )
         )
     return plans
 
@@ -341,9 +563,15 @@ def scenario_query_plans(state: Any) -> dict[str, list[ScenarioQueryPlan]]:
         common_broad.append(ScenarioQueryPlan(query=short, params={"query_role": "short_cn"}))
     if primary and primary not in {broad, short}:
         common_broad.append(ScenarioQueryPlan(query=primary, params={"query_role": "primary_cn"}))
+    source_safe_cn = _source_safe_cn_plans(state)
+    standard_safe_cn = _source_safe_cn_plans(state, include_product_hint=True)
+    fulltext_short_expression = build_yiigle_fulltext_expression(
+        keyword=(_core_chinese_queries(state) or [broad])[0],
+        date_range=literature_date_range,
+    )
     plans = {
-        "cmde_regulatory": common_broad,
-        "standards_current": common_broad,
+        "cmde_regulatory": source_safe_cn,
+        "standards_current": standard_safe_cn,
         "nmpa_competitor": [
             ScenarioQueryPlan(
                 query=broad,
@@ -391,18 +619,17 @@ def scenario_query_plans(state: Any) -> dict[str, list[ScenarioQueryPlan]]:
                 },
             )
         ],
-        "openalex_literature": [
-            ScenarioQueryPlan(
-                query=_openalex_query(state),
-                params={
-                    "query_role": "openalex_keywords",
-                    "retmax": literature_retmax,
-                    "date_range": literature_date_range,
-                    "literature_profile": literature_profile["profile_id"],
-                },
-            )
-        ],
+        "openalex_literature": _openalex_plans(state, literature_profile, literature_date_range),
         "yiigle_fulltext": [
+            ScenarioQueryPlan(
+                query=fulltext_short_expression,
+                params={
+                    "query_role": "yiigle_fulltext_core_expression",
+                    "base_keyword": (_core_chinese_queries(state) or [broad])[0],
+                    "literature_types": DEFAULT_LITERATURE_TYPES,
+                    "literature_date_range": literature_date_range,
+                },
+            ),
             ScenarioQueryPlan(
                 query=fulltext_expression,
                 params={

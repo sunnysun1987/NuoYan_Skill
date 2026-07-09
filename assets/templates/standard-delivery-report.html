@@ -436,16 +436,16 @@
           <div class="insight warn">优先处理责任角色：{{ collection_gap_summary.priority_text }}</div>
         </div>
         <div class="metric-grid compact">
-          <div class="metric-card"><div class="value warn">{{ collection_gap_summary.gap_count }}</div><div class="label">资料缺口</div></div>
+          <div class="metric-card"><div class="value warn">{{ collection_gap_summary.gap_count }}</div><div class="label">未补齐缺口</div></div>
+          <div class="metric-card"><div class="value info">{{ collection_gap_summary.fallback_covered_count }}</div><div class="label">已兜底待复核</div></div>
           <div class="metric-card"><div class="value">{{ materials|length }}</div><div class="label">已登记材料</div></div>
-          <div class="metric-card"><div class="value info">{{ screening_summary.total }}</div><div class="label">证据卡</div></div>
           <div class="metric-card"><div class="value warn">{{ failed_scenarios|length }}</div><div class="label">受限来源</div></div>
         </div>
         <div class="gap-card-grid" id="gap-workbench">
           {% for row in collection_gap_rows %}
           <article class="gap-card">
             <div class="gap-card-head">
-              <span class="status-pill danger">{{ row.status }}</span>
+              <span class="status-pill {{ row.status_level }}">{{ row.status }}</span>
               <span class="owner-pill">{{ row.owner }}</span>
             </div>
             <h3>{{ row.source }}</h3>

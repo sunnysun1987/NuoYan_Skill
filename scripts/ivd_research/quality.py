@@ -16,6 +16,37 @@ OPTIONAL_NOT_STARTED_SCENARIOS = {
     "task_intake",
 }
 
+SCENARIO_FALLBACK_MATERIAL_TYPES = {
+    "cmde_regulatory": {"regulatory"},
+    "nmpa_competitor": {"competitor"},
+    "standards_current": {"standard"},
+    "patenthub_patents": {"patent"},
+    "pubmed_literature": {"literature"},
+    "pmc_fulltext": {"literature"},
+    "openalex_literature": {"literature"},
+    "yiigle_fulltext": {"literature"},
+    "yiigle_zhjyyxzz": {"literature"},
+    "yiigle_zhsjkzz": {"literature"},
+    "cma_lab_management": {"literature"},
+    "wanfang_literature": {"literature"},
+    "chinese_journal": {"literature"},
+}
+
+CHINESE_LITERATURE_SCENARIOS = {
+    "yiigle_fulltext",
+    "yiigle_zhjyyxzz",
+    "yiigle_zhsjkzz",
+    "cma_lab_management",
+    "wanfang_literature",
+    "chinese_journal",
+}
+
+CHINESE_LITERATURE_FALLBACK_SOURCES = {
+    "web_search_public_fallback",
+    "local_import",
+    "import_local",
+}
+
 FALLBACK_REQUIRED_STATUSES = {
     "collection_failed",
     "permission_required",
@@ -66,6 +97,97 @@ def has_fallback_record(scenario: dict[str, Any]) -> bool:
     return any(keyword in text for keyword in keywords)
 
 
+def material_coverage_type(material: dict[str, Any]) -> str:
+    """Return the business coverage lane represented by a material.
+
+    Imported or plugin-derived records may be stored as literature even when the
+    source lane is really patent or regulatory.  Coverage detection therefore
+    looks at explicit material_type first, then source metadata and titles.
+    """
+    material_type = str(material.get("material_type") or "").strip()
+    if material_type in {"regulatory", "competitor", "standard", "patent"}:
+        return material_type
+
+    raw_fields = material.get("raw_fields") or {}
+    haystack = " ".join(
+        str(value or "")
+        for value in [
+            material.get("title", ""),
+            material.get("source_url", ""),
+            material.get("source_scenario", ""),
+            material.get("evidence_lane", ""),
+            raw_fields.get("evidence_lane", ""),
+            raw_fields.get("source_database", ""),
+            raw_fields.get("import_source", ""),
+            raw_fields.get("identifier", ""),
+            raw_fields.get("summary", ""),
+        ]
+    ).lower()
+    if any(signal in haystack for signal in ["google patents", "patents.google", "patent_landscape", "专利"]):
+        return "patent"
+    if any(signal in haystack for signal in ["nmpa", "注册证", "医疗器械批准证明", "械注准"]):
+        return "competitor"
+    if any(signal in haystack for signal in ["yy/t", "gb/t", "标准", "std.samr", "行业标准"]):
+        return "standard"
+    if any(signal in haystack for signal in ["cmde", "指导原则", "审评报告", "注册审查"]):
+        return "regulatory"
+    if material_type == "literature":
+        return "literature"
+    return material_type or "unknown"
+
+
+def fallback_materials_for_scenario(
+    materials: list[dict[str, Any]],
+    scenario_id: str,
+) -> list[dict[str, Any]]:
+    required_types = SCENARIO_FALLBACK_MATERIAL_TYPES.get(scenario_id, set())
+    if not required_types:
+        return []
+
+    matches: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for material in materials:
+        if material.get("source_scenario") == scenario_id:
+            continue
+        if material.get("failure_type"):
+            continue
+        coverage_type = material_coverage_type(material)
+        if coverage_type not in required_types:
+            continue
+        if scenario_id in CHINESE_LITERATURE_SCENARIOS:
+            source_scenario = str(material.get("source_scenario") or "")
+            if source_scenario not in CHINESE_LITERATURE_FALLBACK_SOURCES:
+                continue
+        if not (material.get("title") or material.get("source_url") or material.get("extracted_text_path")):
+            continue
+        key = str(material.get("material_id") or material.get("source_url") or material.get("title") or "")
+        if key in seen:
+            continue
+        seen.add(key)
+        matches.append(material)
+    return matches
+
+
+def fallback_coverage_by_scenario(
+    *,
+    materials: list[dict[str, Any]],
+    scenario_statuses: list[dict[str, Any]],
+    required_scenario_ids: list[str] | set[str] | None = None,
+) -> dict[str, list[dict[str, Any]]]:
+    required_ids = set(required_scenario_ids or [])
+    coverage: dict[str, list[dict[str, Any]]] = {}
+    for scenario in scenario_statuses:
+        scenario_id = str(scenario.get("scenario_id") or "")
+        if required_ids and scenario_id not in required_ids:
+            continue
+        if scenario.get("status") not in CRITICAL_STATUSES | {"no_results", "not_started"}:
+            continue
+        fallback_materials = fallback_materials_for_scenario(materials, scenario_id)
+        if fallback_materials:
+            coverage[scenario_id] = fallback_materials
+    return coverage
+
+
 def build_collection_alerts(
     *,
     materials: list[dict[str, Any]],
@@ -75,6 +197,11 @@ def build_collection_alerts(
 ) -> dict[str, Any]:
     """Summarize collection quality risks for business-facing outputs."""
     required_ids = set(required_scenario_ids or [])
+    fallback_coverage = fallback_coverage_by_scenario(
+        materials=materials,
+        scenario_statuses=scenario_statuses,
+        required_scenario_ids=required_ids,
+    )
     failed = [
         scenario
         for scenario in scenario_statuses
@@ -131,7 +258,20 @@ def build_collection_alerts(
     for scenario in no_results:
         label = scenario.get("label_zh") or scenario.get("scenario_id")
         message = scenario.get("last_message") or "该场景返回 no_results，但缺少检索说明。"
-        warning_messages.append(f"{label} 未命中结果：{message}")
+        fallback_materials = fallback_coverage.get(str(scenario.get("scenario_id") or ""), [])
+        if fallback_materials:
+            warning_messages.append(
+                f"{label} 原通道未命中：{message}；系统已匹配 {len(fallback_materials)} 条同类型公开兜底材料，仍需人工复核官方字段或来源完整性。"
+            )
+        else:
+            warning_messages.append(f"{label} 未命中结果：{message}")
+    for scenario in failed:
+        fallback_materials = fallback_coverage.get(str(scenario.get("scenario_id") or ""), [])
+        if fallback_materials:
+            label = scenario.get("label_zh") or scenario.get("scenario_id")
+            warning_messages.append(
+                f"{label} 官方/原始通道未闭环，但已匹配 {len(fallback_materials)} 条同类型公开兜底材料；正式立项前仍需关闭原通道核验。"
+            )
     if not_started:
         warning_messages.append(
             "仍有未启动采集场景："
@@ -162,6 +302,8 @@ def build_collection_alerts(
         "completed_count": len(completed),
         "failed_count": len(failed),
         "fallback_missing_count": len(fallback_missing),
+        "fallback_covered_count": len(fallback_coverage),
+        "fallback_coverage": fallback_coverage,
         "no_results_count": len(no_results),
         "not_started_count": len(not_started),
         "critical_messages": critical_messages,

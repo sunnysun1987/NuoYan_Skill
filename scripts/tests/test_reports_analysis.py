@@ -1,12 +1,15 @@
 from ivd_research.reports import (
     build_business_decision,
+    build_business_collection_gaps,
     build_business_action_rows,
+    build_collection_gap_summary,
     build_metric_fact_rows,
     build_project_analysis_sections,
     build_section_evidence_rows,
     normalize_evidence_cards,
     normalize_materials,
 )
+from ivd_research.quality import build_collection_alerts
 
 
 def _literature_material():
@@ -217,6 +220,119 @@ def test_hcg_business_decision_is_generic_ivd_not_ad_specific():
     for forbidden in ["AD", "阿尔茨海默", "认知障碍", "PET/CSF"]:
         assert forbidden not in joined
     assert "hCG" in joined or "beta-hCG" in joined
+
+
+def test_collection_gaps_show_public_fallback_without_closing_official_task():
+    scenario_statuses = [
+        {
+            "scenario_id": "standards_current",
+            "label_zh": "现行标准查询",
+            "status": "no_results",
+            "last_message": "源站搜索未命中标准题录。",
+        },
+        {
+            "scenario_id": "patenthub_patents",
+            "label_zh": "专利信息查询",
+            "status": "needs_login",
+            "last_message": "PatentHub 需要登录。",
+        },
+        {
+            "scenario_id": "cmde_regulatory",
+            "label_zh": "CMDE 指导原则、征求意见和审评报告",
+            "status": "no_results",
+            "last_message": "未命中指导原则。",
+        },
+    ]
+    materials = [
+        {
+            "material_id": "MAT-STD",
+            "source_scenario": "web_search_public_fallback",
+            "material_type": "standard",
+            "title": "全国标准信息公共服务平台：YY/T 1164-2021",
+            "source_url": "https://std.samr.gov.cn/example",
+        },
+        {
+            "material_id": "MAT-PAT",
+            "source_scenario": "life_science_research",
+            "material_type": "literature",
+            "title": "Google Patents CN107677837A: beta-HCG test kit",
+            "source_url": "https://patents.google.com/patent/CN107677837A/zh",
+            "raw_fields": {"source_database": "Google Patents", "evidence_lane": "patent_landscape"},
+        },
+    ]
+
+    rows = build_business_collection_gaps(
+        {},
+        scenario_statuses,
+        materials=materials,
+        required_scenario_ids={"standards_current", "patenthub_patents", "cmde_regulatory"},
+    )
+    by_source = {row["source"]: row for row in rows}
+
+    assert by_source["现行标准查询"]["status"] == "已公开兜底部分补齐"
+    assert by_source["现行标准查询"]["status_level"] == "warn"
+    assert by_source["专利信息查询"]["status"] == "已公开兜底部分补齐"
+    assert by_source["专利信息查询"]["fallback_count"] == 1
+    assert by_source["CMDE 指导原则、征求意见和审评报告"]["status"] == "未发现匹配材料"
+
+    summary = build_collection_gap_summary(rows, materials=materials, evidence_cards=[])
+    assert summary["gap_count"] == 1
+    assert summary["fallback_covered_count"] == 2
+    assert "已用公开兜底材料部分补齐" in summary["headline"]
+
+
+def test_collection_alerts_report_fallback_covered_sources():
+    alerts = build_collection_alerts(
+        materials=[
+            {
+                "material_id": "MAT-STD",
+                "source_scenario": "web_search_public_fallback",
+                "material_type": "standard",
+                "title": "YY/T 1164-2021",
+                "source_url": "https://std.samr.gov.cn/example",
+            }
+        ],
+        evidence_cards=[{"evidence_card_id": "EC-1"}],
+        scenario_statuses=[
+            {
+                "scenario_id": "standards_current",
+                "label_zh": "现行标准查询",
+                "status": "no_results",
+                "last_message": "标准站内检索未命中。",
+            }
+        ],
+        required_scenario_ids={"standards_current"},
+    )
+
+    assert alerts["fallback_covered_count"] == 1
+    assert any("公开兜底材料" in message for message in alerts["warning_messages"])
+
+
+def test_chinese_literature_gap_is_not_covered_by_generic_pubmed_material():
+    rows = build_business_collection_gaps(
+        {},
+        [
+            {
+                "scenario_id": "cma_lab_management",
+                "label_zh": "中华临床实验室管理电子杂志文献",
+                "status": "no_results",
+                "last_message": "中文期刊源未命中。",
+            }
+        ],
+        materials=[
+            {
+                "material_id": "MAT-PUB",
+                "source_scenario": "pubmed_literature",
+                "material_type": "literature",
+                "title": "Generic PubMed hCG evidence",
+                "source_url": "https://pubmed.ncbi.nlm.nih.gov/example/",
+            }
+        ],
+        required_scenario_ids={"cma_lab_management"},
+    )
+
+    assert rows[0]["status"] == "未发现匹配材料"
+    assert rows[0]["fallback_count"] == 0
 
 
 def test_metric_fact_rows_use_chinese_labels_and_links():

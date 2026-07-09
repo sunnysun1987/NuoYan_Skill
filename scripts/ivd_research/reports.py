@@ -8,7 +8,11 @@ from jinja2 import Template
 from .jsonl import append_jsonl, read_json, read_jsonl
 from .constants import WORKFLOW_VERSION
 from .project_profile import formal_scenarios_for
-from .quality import OPTIONAL_NOT_STARTED_SCENARIOS, build_collection_alerts
+from .quality import (
+    OPTIONAL_NOT_STARTED_SCENARIOS,
+    build_collection_alerts,
+    fallback_materials_for_scenario,
+)
 from .status import now_iso
 from .translation import (
     TranslationEngine,
@@ -258,7 +262,7 @@ def normalize_materials(
     *,
     task_dir: Path | None = None,
 ) -> list[dict]:
-    from .constants import EVIDENCE_STRENGTH_LABELS, MATERIAL_TYPE_LABELS
+    from .constants import MATERIAL_TYPE_LABELS
     from .scenarios.registry import all_scenarios
 
     _scenario_labels = {s.scenario_id: s.label_zh for s in all_scenarios()}
@@ -541,10 +545,15 @@ def _visible_scenario_statuses(
     return visible
 
 
-def _business_gap_for_scenario(scenario: dict[str, Any]) -> dict[str, str]:
+def _business_gap_for_scenario(
+    scenario: dict[str, Any],
+    *,
+    fallback_materials: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     scenario_id = str(scenario.get("scenario_id") or "")
     label = str(scenario.get("label_zh") or scenario_id or "未命名来源")
     status = str(scenario.get("status") or "")
+    fallback_materials = fallback_materials or []
     manual_labels = {
         "collection_failed": "未采集到",
         "needs_login": "需要登录后补采",
@@ -606,23 +615,46 @@ def _business_gap_for_scenario(scenario: dict[str, Any]) -> dict[str, str]:
         },
     }
     item = {**defaults, **mapping.get(scenario_id, {})}
+    fallback_titles = [
+        clean_display_title(str(material.get("title") or material.get("source_url") or "未命名材料"))
+        for material in fallback_materials[:3]
+    ]
+    if fallback_materials:
+        fallback_text = "；".join(fallback_titles)
+        item["missing"] = (
+            f"{item['missing']} 原采集通道尚未完全闭环；系统已匹配 "
+            f"{len(fallback_materials)} 条同类型公开兜底材料"
+            + (f"：{fallback_text}。" if fallback_text else "。")
+        )
+        item["impact"] = (
+            "已形成部分替代证据，可用于初步研判；但官方字段、全文完整性或来源权限仍未关闭，正式立项前必须复核。"
+        )
+        item["action"] = (
+            "先按兜底材料推进内部复核，同时保留原通道补采任务；补齐官方字段、全文或登录库核验后再更新报告。"
+        )
+        type_label = "已公开兜底部分补齐"
     return {
         "source": label,
         "status": type_label,
+        "status_level": "warn" if fallback_materials else "danger",
         "missing": item["missing"],
         "impact": item["impact"],
         "action": item["action"],
         "owner": item["owner"],
+        "fallback_count": len(fallback_materials),
+        "fallback_titles": fallback_titles,
     }
 
 
 def build_business_collection_gaps(
     collection_alerts: dict[str, Any],
     scenario_statuses: list[dict[str, Any]],
+    materials: list[dict[str, Any]] | None = None,
     required_scenario_ids: list[str] | set[str] | None = None,
-) -> list[dict[str, str]]:
+) -> list[dict[str, Any]]:
     """Convert technical collection statuses into business-facing supplement tasks."""
     required_ids = set(required_scenario_ids or [])
+    materials = materials or []
     relevant_statuses = {
         "collection_failed",
         "permission_required",
@@ -640,9 +672,15 @@ def build_business_collection_gaps(
         and (not required_ids or item.get("scenario_id") in required_ids)
     ]
     seen: set[tuple[str, str]] = set()
-    rows: list[dict[str, str]] = []
+    rows: list[dict[str, Any]] = []
     for scenario in scenarios:
-        row = _business_gap_for_scenario(scenario)
+        row = _business_gap_for_scenario(
+            scenario,
+            fallback_materials=fallback_materials_for_scenario(
+                materials,
+                str(scenario.get("scenario_id") or ""),
+            ),
+        )
         key = (row["source"], row["missing"])
         if key in seen:
             continue
@@ -652,7 +690,7 @@ def build_business_collection_gaps(
 
 
 def build_collection_gap_summary(
-    collection_gap_rows: list[dict[str, str]],
+    collection_gap_rows: list[dict[str, Any]],
     *,
     materials: list[dict[str, Any]],
     evidence_cards: list[dict[str, Any]],
@@ -664,6 +702,8 @@ def build_collection_gap_summary(
         status = row.get("status", "需处理")
         owner_counts[owner] = owner_counts.get(owner, 0) + 1
         status_counts[status] = status_counts.get(status, 0) + 1
+    fallback_covered_count = sum(1 for row in collection_gap_rows if row.get("fallback_count"))
+    uncovered_gap_count = len(collection_gap_rows) - fallback_covered_count
     priority = []
     for owner in ["注册 / 产品", "知识产权 / 研发", "注册", "研发 / 质量", "医学 / 项目"]:
         count = owner_counts.get(owner)
@@ -672,15 +712,24 @@ def build_collection_gap_summary(
     if not priority and owner_counts:
         priority = [f"{owner}：{count} 项" for owner, count in sorted(owner_counts.items())[:5]]
     if collection_gap_rows:
-        headline = (
-            f"当前报告已形成 {len(materials)} 条材料和 {len(evidence_cards)} 张证据卡，"
-            f"但仍有 {len(collection_gap_rows)} 项资料缺口需要人工补充或复核。"
-        )
+        if fallback_covered_count:
+            headline = (
+                f"当前报告已形成 {len(materials)} 条材料和 {len(evidence_cards)} 张证据卡，"
+                f"仍有 {uncovered_gap_count} 项资料缺口未补齐；另有 {fallback_covered_count} 项已用公开兜底材料部分补齐，"
+                "需要人工复核官方字段或来源完整性。"
+            )
+        else:
+            headline = (
+                f"当前报告已形成 {len(materials)} 条材料和 {len(evidence_cards)} 张证据卡，"
+                f"但仍有 {len(collection_gap_rows)} 项资料缺口需要人工补充或复核。"
+            )
     else:
         headline = "当前未识别到需要单独处理的资料缺口。"
     return {
         "headline": headline,
-        "gap_count": len(collection_gap_rows),
+        "gap_count": uncovered_gap_count,
+        "total_gap_task_count": len(collection_gap_rows),
+        "fallback_covered_count": fallback_covered_count,
         "owner_counts": owner_counts,
         "status_counts": status_counts,
         "priority_text": "；".join(priority) if priority else "暂无重点责任角色。",
@@ -3207,6 +3256,7 @@ def build_standard_report(task_dir: Path, output: Path | None = None) -> dict:
     collection_gap_rows = build_business_collection_gaps(
         collection_alerts,
         scenario_statuses,
+        materials=materials,
         required_scenario_ids=required_scenarios,
     )
     collection_gap_summary = build_collection_gap_summary(
