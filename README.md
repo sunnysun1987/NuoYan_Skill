@@ -114,7 +114,13 @@ Key fields include `search_profile_ready`, `scenario_coverage_ready`, `fallback_
 
 `business_ready=true` requires more than generated files. The package must have confirmed search scope, complete source coverage or documented fallback, V2.1 source-site and knowledge assets, reviewed evidence cards, and a valid standard delivery folder.
 
+V2.1.4 makes formal source coverage project-aware. Common IVD projects use the shared regulatory, registration, standards, patent, Chinese laboratory, PubMed, PMC, OpenAlex and Chinese full-text sources. Neurology-specific Chinese literature and Wiley Alzheimer sources are only added when the confirmed project profile indicates neurology, cognitive impairment or AD biomarkers. If the initial task title contains stale wording, confirmed `primary_query` and keywords take precedence.
+
 For biomarker or disease-mechanism projects, `business_ready=true` also requires life-science-research plugin coverage. The default gate requires at least 12 imported plugin materials, 5 source databases and 4 evidence lanes. Missing or shallow plugin imports keep `scenario_coverage_ready=false` and the HTML evidence map shows the external scientific database status separately.
+
+V2.1.4 also neutralizes AD-only examples in network checks and translation prompts, and expands local topic indexing to general IVD markers, samples, platforms and reference methods.
+
+V2.1.4 fixes AD template bleed-through by routing source coverage, delivery pipelines, verification warnings and report gaps through the confirmed project profile instead of a fixed AD-oriented source list.
 
 V2.1.3 fixes the plugin bridge so source database names such as `EFO/OLS` are stored with safe filenames, imported plugin findings update the `life_science_research` scenario status, and full/delivery pipelines generate a staged plugin query plan instead of silently skipping the external scientific database step.
 

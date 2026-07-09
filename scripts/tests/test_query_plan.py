@@ -67,6 +67,7 @@ def test_hcg_query_plan_does_not_enable_alzheimer_specific_source():
     )
 
     assert "wiley_alz" not in plans
+    assert "yiigle_zhsjkzz" not in plans
     query_text = "\n".join(
         plan.query
         for scenario_plans in plans.values()
@@ -80,5 +81,6 @@ def test_ad_query_plan_keeps_alzheimer_specific_source():
     plans = scenario_query_plans(_state())
 
     assert "wiley_alz" in plans
+    assert "yiigle_zhsjkzz" in plans
     assert "Alzheimer disease" in plans["wiley_alz"][0].query
     assert "p-tau217" in plans["wiley_alz"][0].query

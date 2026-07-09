@@ -39,7 +39,7 @@ NETWORK_PROBES = [
         "id": "openalex",
         "label_zh": "OpenAlex",
         "host": "api.openalex.org",
-        "url": "https://api.openalex.org/works?search=Alzheimer&per-page=1",
+        "url": "https://api.openalex.org/works?search=immunoassay%20biomarker&per-page=1",
     },
 ]
 

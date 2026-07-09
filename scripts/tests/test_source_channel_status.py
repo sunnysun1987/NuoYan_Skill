@@ -193,3 +193,59 @@ def test_life_science_plan_command_marks_required_plugin_action(tmp_path: Path):
     assert scenario["status"] == "needs_manual_review"
     assert "life-science-research 插件" in scenario["last_message"]
     assert '"minimum_coverage"' in result.stdout
+
+
+def test_delivery_pipeline_does_not_collect_ad_source_for_hcg(monkeypatch, tmp_path: Path):
+    state = init_task("beta-hCG 非 AD 信源装配测试", tmp_path)
+    task_dir = Path(state.task_dir)
+    update_confirmations(
+        task_dir,
+        {
+            "task_info": True,
+            "keyword_pool": True,
+            "collection_scope": True,
+            "primary_query": "beta-hCG定量检测试剂盒（荧光免疫层析法）",
+            "english_keywords": "beta hCG quantitative test kit fluorescence immunochromatography",
+            "sample_type": "血清/尿液",
+            "platform": "荧光免疫层析",
+            "methodology": "荧光免疫层析法",
+            "intended_use": "妊娠相关检测",
+            "target_region": "中国",
+            "competitor_scope": "NMPA hCG 同类产品",
+            "patent_scope": "中国",
+        },
+    )
+    calls = []
+
+    def fake_collect(task_id, task_dir, params):
+        calls.append(params)
+        return ScenarioResult(
+            status=FailureType.COLLECTION_FAILED.value,
+            failure_type=FailureType.COLLECTION_FAILED,
+            message_zh="不应调用 AD 专用信源",
+        )
+
+    monkeypatch.setattr("ivd_research.cli.DELIVERY_BROWSER_SCENARIOS", [])
+    monkeypatch.setattr("ivd_research.cli.DELIVERY_HTTP_SCENARIOS", ["wiley_alz"])
+    monkeypatch.setattr("ivd_research.cli.SCENARIO_COLLECTORS", {"wiley_alz": fake_collect})
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "run-delivery-pipeline",
+            "--task-id",
+            state.task_id,
+            "--output-root",
+            str(tmp_path),
+            "--skip-network-preflight",
+            "--json",
+        ],
+    )
+
+    task = json.loads((task_dir / "task.json").read_text(encoding="utf-8"))
+    scenario = task["scenario_statuses"]["wiley_alz"]
+
+    assert result.exit_code == 0
+    assert calls == []
+    assert scenario["status"] == "deferred"
+    assert "AD 专用信源" in scenario["last_message"]

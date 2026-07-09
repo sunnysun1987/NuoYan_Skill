@@ -3,6 +3,8 @@ from datetime import date
 import re
 from typing import Any
 
+from .project_profile import is_ad_project
+
 
 METHOD_QUERY_TERMS = [
     "核酸检测试剂盒",
@@ -147,36 +149,7 @@ def _append_terms(base: str, *values: Any) -> str:
 
 
 def requires_wiley_alzheimer_source(state: Any) -> bool:
-    confirmations = getattr(state, "confirmations", {}) or {}
-    text = " ".join(
-        str(value or "")
-        for value in [
-            getattr(state, "topic", ""),
-            confirmations.get("primary_query", ""),
-            confirmations.get("english_keywords", ""),
-            confirmations.get("chinese_synonyms", ""),
-            confirmations.get("intended_use", ""),
-            confirmations.get("competitor_scope", ""),
-            confirmations.get("patent_scope", ""),
-        ]
-    ).lower()
-    return any(
-        term in text
-        for term in [
-            "alzheimer",
-            "阿尔茨海默",
-            "认知障碍",
-            "痴呆",
-            "mci",
-            "p-tau",
-            "ptau",
-            "tau217",
-            "tau181",
-            "aβ",
-            "abeta",
-            "amyloid",
-        ]
-    ) or bool(re.search(r"\bad\b", text))
+    return is_ad_project(state)
 
 
 def _cn_business_query(state: Any) -> str:
@@ -391,7 +364,6 @@ def scenario_query_plans(state: Any) -> dict[str, list[ScenarioQueryPlan]]:
             )
         ],
         "yiigle_zhjyyxzz": _journal_plans(state),
-        "yiigle_zhsjkzz": _journal_plans(state),
         "cma_lab_management": _journal_plans(state),
         "pubmed_literature": [
             ScenarioQueryPlan(
@@ -442,6 +414,10 @@ def scenario_query_plans(state: Any) -> dict[str, list[ScenarioQueryPlan]]:
             )
         ],
     }
+    from .project_profile import is_neurology_project
+
+    if is_neurology_project(state):
+        plans["yiigle_zhsjkzz"] = _journal_plans(state)
     if requires_wiley_alzheimer_source(state):
         plans["wiley_alz"] = [
             ScenarioQueryPlan(

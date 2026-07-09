@@ -370,7 +370,7 @@ class TranslationEngine:
     def _translate_openai_compatible(self, text: str, *, context: str = "") -> str:
         system_prompt = (
             "你是医疗与IVD领域的专业中英翻译。请把英文医学材料完整翻译为中文。"
-            "要求：1. 不删减信息，不摘要，不改写为总结；2. 保留 Aβ42/40、p-tau217、CSF、PET、AUC、95% CI、P 值、n 等专业符号和数值；"
+            "要求：1. 不删减信息，不摘要，不改写为总结；2. 保留检测项目、样本类型、平台方法、AUC、LoD、cut-off、95% CI、P 值、n 等专业符号和数值；"
             "3. 药品、检测平台、队列名称、机构名可保留英文；4. 输出自然、可直接阅读的中文段落；"
             "5. 不添加原文没有的结论。"
         )

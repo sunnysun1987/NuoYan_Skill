@@ -7,6 +7,10 @@ from pathlib import Path
 
 from .jsonl import count_jsonl_rows, read_jsonl, write_json
 from .paths import safe_topic
+from .project_profile import (
+    NETWORK_SENSITIVE_SCENARIOS,
+    formal_scenarios_for,
+)
 from .quality import build_collection_alerts
 from .status import now_iso
 
@@ -16,12 +20,10 @@ FORMAL_SCENARIOS = [
     "standards_current",
     "patenthub_patents",
     "yiigle_zhjyyxzz",
-    "yiigle_zhsjkzz",
     "cma_lab_management",
     "pubmed_literature",
     "pmc_fulltext",
     "openalex_literature",
-    "wiley_alz",
     "yiigle_fulltext",
 ]
 
@@ -64,12 +66,6 @@ LIFE_SCIENCE_TRIGGER_PATTERNS = [
 MIN_LIFE_SCIENCE_MATERIALS = 12
 MIN_LIFE_SCIENCE_DATABASES = 5
 MIN_LIFE_SCIENCE_LANES = 4
-
-NETWORK_SENSITIVE_SCENARIOS = [
-    "pubmed_literature",
-    "pmc_fulltext",
-    "openalex_literature",
-]
 
 BUSINESS_READY_SCENARIO_STATUSES = {"completed", "no_results"}
 DEFERRED_SCENARIO_STATUSES = {"deferred"}
@@ -363,7 +359,7 @@ def scenario_coverage_warnings(task_dir: Path) -> list[str]:
 
     statuses = task.get("scenario_statuses", {})
     warnings: list[str] = []
-    for scenario_id in FORMAL_SCENARIOS:
+    for scenario_id in formal_scenarios_for(task):
         scenario = statuses.get(scenario_id)
         if not scenario:
             warnings.append(f"正式场景 {scenario_id} 缺少状态记录，不能判定业务可交付。")
@@ -604,6 +600,7 @@ def verify_package(task_dir: Path) -> dict:
         materials=list(read_jsonl(task_dir / "data" / "materials.jsonl")),
         evidence_cards=list(read_jsonl(task_dir / "data" / "evidence_cards.jsonl")),
         scenario_statuses=scenario_statuses,
+        required_scenario_ids=formal_scenarios_for(task),
     )
     life_science = life_science_coverage(task_dir, task)
     life_science_gate_warnings = life_science_warnings(life_science)

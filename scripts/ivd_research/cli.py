@@ -31,6 +31,7 @@ from .package import (
     requires_life_science_research,
     verify_package,
 )
+from .project_profile import scenario_exclusion_message
 from .query_plan import (
     default_query_plan,
     scenario_query_plans,
@@ -168,6 +169,8 @@ DELIVERY_HTTP_SCENARIOS = [
     "pubmed_literature",
     "pmc_fulltext",
     "openalex_literature",
+    "wiley_alz",
+    "yiigle_fulltext",
 ]
 
 DELIVERY_BROWSER_SCENARIOS = [
@@ -213,6 +216,22 @@ def _record_life_science_plan_if_required(task_dir: Path, state) -> dict:
             f"插件查询计划已生成：{plan_path.relative_to(task_dir)}。"
         )
     return {"required": True, "status": "needs_manual_review", "plan_path": str(plan_path)}
+
+
+def _defer_inapplicable_scenarios(state, plans_by_scenario: dict) -> list[str]:
+    deferred: list[str] = []
+    for scenario in SCENARIO_COLLECTORS:
+        if scenario == "local_import" or scenario in plans_by_scenario:
+            continue
+        if scenario not in state.scenario_statuses:
+            continue
+        state.scenario_statuses[scenario].status = "deferred"
+        state.scenario_statuses[scenario].last_message = scenario_exclusion_message(
+            state,
+            scenario,
+        )
+        deferred.append(scenario)
+    return deferred
 
 
 def _record_scenario_result(task_dir: Path, state, scenario: str, result) -> None:
@@ -393,7 +412,7 @@ def run_scenario_command(
     if scenario in SCENARIO_COLLECTORS and scenario not in plans_by_scenario:
         result = ScenarioResult(
             status="deferred",
-            message_zh=f"{adapter.label_zh} 不适用于当前项目检索画像，已跳过。",
+            message_zh=scenario_exclusion_message(state, scenario),
         )
         if scenario in state.scenario_statuses:
             state.scenario_statuses[scenario].status = result.status
@@ -818,11 +837,9 @@ def run_full_pipeline_command(
         )
     if not skip_collection:
         plans_by_scenario = scenario_query_plans(state)
+        _defer_inapplicable_scenarios(state, plans_by_scenario)
         for scenario, collector in SCENARIO_COLLECTORS.items():
-            if scenario != "local_import" and scenario not in plans_by_scenario:
-                if scenario in state.scenario_statuses:
-                    state.scenario_statuses[scenario].status = "deferred"
-                    state.scenario_statuses[scenario].last_message = "该信源不适用于当前项目检索画像，已跳过。"
+            if scenario == "local_import" or scenario not in plans_by_scenario:
                 continue
             result = None
             for plan in plans_by_scenario.get(scenario) or default_query_plan(state):
@@ -910,9 +927,12 @@ def run_delivery_pipeline_command(
             enabled=network_preflight,
             action="run_delivery_pipeline",
         )
+        deferred_scenarios = _defer_inapplicable_scenarios(state, plans_by_scenario)
         for scenario in DELIVERY_BROWSER_SCENARIOS:
+            if scenario not in plans_by_scenario:
+                continue
             result = None
-            for plan in plans_by_scenario.get(scenario) or default_query_plan(state):
+            for plan in plans_by_scenario.get(scenario) or []:
                 for mode in _browser_launch_modes(launch_mode):
                     browser_kwargs = {
                         "query": plan.query,
@@ -945,9 +965,11 @@ def run_delivery_pipeline_command(
             save_task(state)
 
         for scenario in DELIVERY_HTTP_SCENARIOS:
+            if scenario not in plans_by_scenario:
+                continue
             collector = SCENARIO_COLLECTORS[scenario]
             result = None
-            for plan in plans_by_scenario.get(scenario) or default_query_plan(state):
+            for plan in plans_by_scenario.get(scenario) or []:
                 params = {
                     "material_id": next_material_id(task_dir),
                     "query": plan.query,
@@ -969,15 +991,10 @@ def run_delivery_pipeline_command(
                 _record_scenario_result(task_dir, state, scenario, result)
                 save_task(state)
 
-        for deferred in ["wiley_alz"]:
-            if deferred in state.scenario_statuses:
-                state.scenario_statuses[deferred].status = "deferred"
-                state.scenario_statuses[deferred].last_message = (
-                    "本期交付暂缓该信源；报告中必须明确标注，不能视为已完成采集。"
-                )
         life_science_plan = _record_life_science_plan_if_required(task_dir, state)
         save_task(state)
     else:
+        deferred_scenarios = []
         life_science_plan = _record_life_science_plan_if_required(task_dir, state)
         save_task(state)
 
@@ -1004,7 +1021,7 @@ def run_delivery_pipeline_command(
             },
             "standard_delivery": standard_delivery,
             "verification": verification,
-            "deferred": ["wiley_alz"],
+            "deferred": deferred_scenarios,
         },
         json_output,
     )

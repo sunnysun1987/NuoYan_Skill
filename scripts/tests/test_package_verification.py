@@ -12,11 +12,11 @@ from ivd_research.evidence import (
 from ivd_research.jsonl import append_jsonl, write_json
 from ivd_research.models import Material
 from ivd_research.package import (
-    FORMAL_SCENARIOS,
     build_standard_delivery,
     requires_life_science_research,
     verify_package,
 )
+from ivd_research.project_profile import formal_scenarios_for
 from ivd_research.review_excel import export_review, import_review
 from ivd_research.source_adapters.life_science_research_bridge import import_life_science_findings
 from ivd_research.status import init_task
@@ -36,6 +36,21 @@ FULL_CONFIRMATIONS = {
     "target_region": "中国",
     "competitor_scope": "NMPA 已注册同类产品",
     "patent_scope": True,
+}
+
+HCG_CONFIRMATIONS = {
+    "task_info": True,
+    "keyword_pool": True,
+    "collection_scope": True,
+    "primary_query": "beta-hCG定量检测试剂盒（荧光免疫层析法）",
+    "english_keywords": "beta hCG quantitative test kit fluorescence immunochromatography",
+    "sample_type": "血清/尿液",
+    "platform": "荧光免疫层析",
+    "methodology": "荧光免疫层析法",
+    "intended_use": "妊娠相关检测",
+    "target_region": "中国",
+    "competitor_scope": "NMPA 已注册 hCG 同类产品",
+    "patent_scope": "中国",
 }
 
 
@@ -86,9 +101,49 @@ def _write_single_material_and_card(task_dir: Path) -> None:
     export_evidence_card_files(task_dir, card_payload)
 
 
+def _write_hcg_material_and_card(task_dir: Path) -> None:
+    text_path = task_dir / "extracted_text" / "literature" / "MAT-000001.txt"
+    text_path.parent.mkdir(parents=True, exist_ok=True)
+    text_path.write_text(
+        "摘要：human chorionic gonadotropin assays support pregnancy-related testing.",
+        encoding="utf-8",
+    )
+    material = Material(
+        material_id="MAT-000001",
+        task_id="TEST",
+        source_scenario="pubmed_literature",
+        material_type="literature",
+        title="Human chorionic gonadotropin immunoassay for pregnancy-related testing",
+        source_url="https://pubmed.ncbi.nlm.nih.gov/12345678/",
+        search_keyword_or_query="beta hCG quantitative immunoassay",
+        collection_path={"scenario_id": "pubmed_literature"},
+        collection_time="2026-07-09T00:00:00+08:00",
+        adapter_id="pubmed_literature",
+        adapter_version="2.0.0",
+        raw_fields={
+            "pmid": "12345678",
+            "journal": "Journal of Test Medicine",
+            "publication_date": "2026-07-09",
+            "abstract": "Human chorionic gonadotropin assays support pregnancy-related testing.",
+            "fulltext_status": "completed",
+        },
+        extracted_text_status="completed",
+        extracted_text_path=str(text_path.relative_to(task_dir)),
+    )
+    append_jsonl(task_dir / "data" / "materials.jsonl", material.model_dump(mode="json"))
+    card = build_draft_evidence_card(
+        task_dir,
+        material.model_dump(mode="json"),
+        "EC-000001",
+    )
+    card_payload = card.model_dump(mode="json")
+    append_jsonl(task_dir / "data" / "evidence_cards.jsonl", card_payload)
+    export_evidence_card_files(task_dir, card_payload)
+
+
 def _mark_formal_scenarios(task_dir: Path, status: str = "no_results") -> None:
     task = json.loads((task_dir / "task.json").read_text(encoding="utf-8"))
-    for scenario_id in FORMAL_SCENARIOS:
+    for scenario_id in formal_scenarios_for(task):
         task["scenario_statuses"][scenario_id]["status"] = status
         task["scenario_statuses"][scenario_id]["last_message"] = "离线测试：已记录明确状态。"
     task["scenario_statuses"]["pubmed_literature"]["status"] = "completed"
@@ -263,6 +318,42 @@ def test_verify_package_accepts_reviewed_complete_offline_package(tmp_path: Path
     assert result["fallback_ready"] is True
     assert result["network_ready"] is True
     assert result["business_ready"] is True
+
+
+def test_verify_package_does_not_require_ad_sources_for_hcg_project(tmp_path: Path):
+    task_dir = _task_dir(tmp_path)
+    update_confirmations(task_dir, HCG_CONFIRMATIONS)
+    _write_hcg_material_and_card(task_dir)
+    review = export_review(task_dir)
+    _mark_formal_scenarios(task_dir)
+
+    from openpyxl import load_workbook
+
+    workbook = Path(review["review_path"])
+    wb = load_workbook(workbook)
+    ws = wb["文献"]
+    headers = [cell.value for cell in ws[1]]
+    for header, value in {
+        "是否纳入报告": "是",
+        "一级标签": "临床意义",
+        "证据强度": "moderate",
+        "复核状态": "已复核",
+    }.items():
+        ws.cell(row=2, column=headers.index(header) + 1, value=value)
+    wb.save(workbook)
+
+    assert import_review(task_dir, workbook)["ok"] is True
+    build_standard_delivery(task_dir)
+    result = verify_package(task_dir)
+    warning_text = "\n".join(result["warnings"])
+    html = (task_dir / "交付目录" / "00_立项调研综合报告.html").read_text(encoding="utf-8")
+
+    assert "wiley_alz" not in warning_text
+    assert "Wiley Alzheimer" not in warning_text
+    assert "中华神经科" not in warning_text
+    assert "Wiley Alzheimer" not in html
+    assert "中华神经科" not in html
+    assert result["life_science_coverage"]["required"] is True
 
 
 def test_verify_package_requires_life_science_for_biomarker_projects(tmp_path: Path):

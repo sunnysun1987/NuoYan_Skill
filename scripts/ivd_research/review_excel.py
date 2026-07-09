@@ -10,6 +10,7 @@ from openpyxl.utils import get_column_letter
 from .jsonl import append_jsonl, read_jsonl, write_json
 from .constants import EVIDENCE_STRENGTH_LABELS
 from .quality import build_collection_alerts
+from .project_profile import formal_scenarios_for
 from .status import load_task
 
 
@@ -196,10 +197,12 @@ def export_review(task_dir: Path) -> dict:
         status.model_dump(mode="json")
         for status in (task.scenario_statuses or {}).values()
     ]
+    required_scenarios = formal_scenarios_for(task.model_dump(mode="json"))
     collection_alerts = build_collection_alerts(
         materials=materials,
         evidence_cards=list(evidence.values()),
         scenario_statuses=scenario_statuses,
+        required_scenario_ids=required_scenarios,
     )
     wb = Workbook()
     wb.remove(wb.active)

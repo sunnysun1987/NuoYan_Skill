@@ -6,6 +6,8 @@ from datetime import date
 from jinja2 import Template
 
 from .jsonl import append_jsonl, read_json, read_jsonl
+from .constants import WORKFLOW_VERSION
+from .project_profile import formal_scenarios_for
 from .quality import OPTIONAL_NOT_STARTED_SCENARIOS, build_collection_alerts
 from .status import now_iso
 from .translation import (
@@ -523,6 +525,22 @@ def normalize_scenario_statuses(scenario_statuses: list[dict]) -> list[dict]:
     return normalized
 
 
+def _visible_scenario_statuses(
+    scenario_statuses: list[dict[str, Any]],
+    required_scenario_ids: list[str] | set[str],
+) -> list[dict[str, Any]]:
+    required_ids = set(required_scenario_ids)
+    visible: list[dict[str, Any]] = []
+    for scenario in scenario_statuses:
+        scenario_id = scenario.get("scenario_id")
+        if scenario_id in required_ids:
+            visible.append(scenario)
+            continue
+        if scenario.get("material_count", 0):
+            visible.append(scenario)
+    return visible
+
+
 def _business_gap_for_scenario(scenario: dict[str, Any]) -> dict[str, str]:
     scenario_id = str(scenario.get("scenario_id") or "")
     label = str(scenario.get("label_zh") or scenario_id or "未命名来源")
@@ -601,8 +619,10 @@ def _business_gap_for_scenario(scenario: dict[str, Any]) -> dict[str, str]:
 def build_business_collection_gaps(
     collection_alerts: dict[str, Any],
     scenario_statuses: list[dict[str, Any]],
+    required_scenario_ids: list[str] | set[str] | None = None,
 ) -> list[dict[str, str]]:
     """Convert technical collection statuses into business-facing supplement tasks."""
+    required_ids = set(required_scenario_ids or [])
     relevant_statuses = {
         "collection_failed",
         "permission_required",
@@ -617,6 +637,7 @@ def build_business_collection_gaps(
         for item in scenario_statuses
         if item.get("status") in relevant_statuses
         and item.get("scenario_id") not in OPTIONAL_NOT_STARTED_SCENARIOS
+        and (not required_ids or item.get("scenario_id") in required_ids)
     ]
     seen: set[tuple[str, str]] = set()
     rows: list[dict[str, str]] = []
@@ -3061,10 +3082,16 @@ def build_report(task_dir: Path, report_type: str) -> dict:
     scenario_statuses = normalize_scenario_statuses(
         list((task.get("scenario_statuses") or {}).values())
     )
+    required_scenarios = formal_scenarios_for(task)
+    visible_scenario_statuses = _visible_scenario_statuses(
+        scenario_statuses,
+        required_scenarios,
+    )
     collection_alerts = build_collection_alerts(
         materials=materials,
         evidence_cards=evidence_cards,
-        scenario_statuses=scenario_statuses,
+        scenario_statuses=visible_scenario_statuses,
+        required_scenario_ids=required_scenarios,
     )
     generated_at = now_iso()
 
@@ -3078,7 +3105,7 @@ def build_report(task_dir: Path, report_type: str) -> dict:
             materials=materials,
             evidence_cards=evidence_cards,
             review_source=review_source,
-            scenario_statuses=scenario_statuses,
+            scenario_statuses=visible_scenario_statuses,
             collection_alerts=collection_alerts,
             failed_count=sum(1 for item in materials if item.get("failure_type")),
             generated_at=generated_at,
@@ -3094,7 +3121,7 @@ def build_report(task_dir: Path, report_type: str) -> dict:
             materials=materials,
             evidence_cards=evidence_cards,
             review_source=review_source,
-            scenario_statuses=scenario_statuses,
+            scenario_statuses=visible_scenario_statuses,
             collection_alerts=collection_alerts,
             included_count=sum(1 for card in evidence_cards if card.get("include_in_report")),
             analysis_source="ai_report_sections" if report_sections else "rule_draft",
@@ -3104,7 +3131,7 @@ def build_report(task_dir: Path, report_type: str) -> dict:
                 evidence_cards,
                 include_only=review_source == "reviewed",
             ),
-            analysis=build_feasibility_analysis(materials, evidence_cards, scenario_statuses),
+            analysis=build_feasibility_analysis(materials, evidence_cards, visible_scenario_statuses),
             sections=REPORT_SECTIONS,
             generated_at=generated_at,
             css=css,
@@ -3165,19 +3192,29 @@ def build_standard_report(task_dir: Path, output: Path | None = None) -> dict:
     scenario_statuses = normalize_scenario_statuses(
         list((task.get("scenario_statuses") or {}).values())
     )
+    required_scenarios = formal_scenarios_for(task)
+    visible_scenario_statuses = _visible_scenario_statuses(
+        scenario_statuses,
+        required_scenarios,
+    )
     scenario_map = {item.get("scenario_id"): item for item in scenario_statuses}
     collection_alerts = build_collection_alerts(
         materials=materials,
         evidence_cards=evidence_cards,
         scenario_statuses=scenario_statuses,
+        required_scenario_ids=required_scenarios,
     )
-    collection_gap_rows = build_business_collection_gaps(collection_alerts, scenario_statuses)
+    collection_gap_rows = build_business_collection_gaps(
+        collection_alerts,
+        scenario_statuses,
+        required_scenario_ids=required_scenarios,
+    )
     collection_gap_summary = build_collection_gap_summary(
         collection_gap_rows,
         materials=materials,
         evidence_cards=evidence_cards,
     )
-    analysis = build_feasibility_analysis(materials, evidence_cards, scenario_statuses)
+    analysis = build_feasibility_analysis(materials, evidence_cards, visible_scenario_statuses)
     metric_facts = list(read_jsonl(task_dir / "knowledge" / "metric_facts.jsonl"))
     source_runs = list(read_jsonl(task_dir / "data" / "source_runs.jsonl"))
     knowledge_status = {
@@ -3209,12 +3246,20 @@ def build_standard_report(task_dir: Path, output: Path | None = None) -> dict:
             "pmc_fulltext",
             "openalex_literature",
             "life_science_research",
+            "yiigle_zhsjkzz",
+            "wiley_alz",
         }
     ]
     regulatory_materials = _by_type(materials, "regulatory")
     competitor_materials = _by_type(materials, "competitor")
     standard_materials = _by_type(materials, "standard")
     patent_materials = _by_type(materials, "patent")
+    neurology_literature_materials = [
+        item for item in literature_materials if item.get("source_scenario") == "yiigle_zhsjkzz"
+    ]
+    wiley_alz_materials = [
+        item for item in literature_materials if item.get("source_scenario") == "wiley_alz"
+    ]
 
     evidence_map = [
         {
@@ -3276,6 +3321,44 @@ def build_standard_report(task_dir: Path, output: Path | None = None) -> dict:
             "level": _scenario_level("", len(other_literature_materials)),
             "use": "补充国内临床应用、实验室管理、指南解读和转化场景。",
         },
+        *(
+            [
+                {
+                    "name": "神经方向中文文献",
+                    "count": len(neurology_literature_materials),
+                    "status": _scenario_status_text(
+                        scenario_map.get("yiigle_zhsjkzz", {}).get("status", ""),
+                        len(neurology_literature_materials),
+                    ),
+                    "level": _scenario_level(
+                        scenario_map.get("yiigle_zhsjkzz", {}).get("status", ""),
+                        len(neurology_literature_materials),
+                    ),
+                    "use": "用于神经/认知方向的中文临床语境、指南解读和专科路径补充。",
+                }
+            ]
+            if "yiigle_zhsjkzz" in required_scenarios
+            else []
+        ),
+        *(
+            [
+                {
+                    "name": "Wiley Alzheimer 文献",
+                    "count": len(wiley_alz_materials),
+                    "status": _scenario_status_text(
+                        scenario_map.get("wiley_alz", {}).get("status", ""),
+                        len(wiley_alz_materials),
+                    ),
+                    "level": _scenario_level(
+                        scenario_map.get("wiley_alz", {}).get("status", ""),
+                        len(wiley_alz_materials),
+                    ),
+                    "use": "用于 AD/认知障碍项目的疾病专科文献补充，不作为其他 IVD 项目的默认信源。",
+                }
+            ]
+            if "wiley_alz" in required_scenarios
+            else []
+        ),
         {
             "name": "法规 / 指导原则",
             "count": len(regulatory_materials),
@@ -3332,7 +3415,7 @@ def build_standard_report(task_dir: Path, output: Path | None = None) -> dict:
 
     failed_scenarios = [
         item
-        for item in scenario_statuses
+        for item in visible_scenario_statuses
         if item.get("status") in {"collection_failed", "needs_login", "permission_required"}
     ]
     business_decision = build_business_decision(
@@ -3420,6 +3503,7 @@ def build_standard_report(task_dir: Path, output: Path | None = None) -> dict:
         scenario_statuses=scenario_statuses,
         scenario_map=scenario_map,
         collection_alerts=collection_alerts,
+        workflow_version=WORKFLOW_VERSION,
         collection_gap_rows=collection_gap_rows,
         collection_gap_summary=collection_gap_summary,
         analysis=analysis,

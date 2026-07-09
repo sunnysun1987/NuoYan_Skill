@@ -53,17 +53,19 @@ nuoyan show-status --task-id <task_id> --json
 
 ## 正式来源场景覆盖
 
-完整可行性调研必须覆盖证据地图中的正式来源场景：
+完整可行性调研必须覆盖证据地图中“当前项目画像适用”的正式来源场景。已确认的 `primary_query`、英文关键词、样本、方法学、预期用途和竞品/专利范围优先于初始任务标题；如果初始标题带有旧项目词，不能让旧标题污染新项目画像。
 
 - 法规/审评：`cmde_regulatory`
 - 竞品注册：`nmpa_competitor`
 - 现行标准：`standards_current`
 - 专利：`patenthub_patents`
-- 中文文献：`yiigle_zhjyyxzz`、`yiigle_zhsjkzz`、`cma_lab_management`、`yiigle_fulltext`
-- 国际文献：`pubmed_literature`、`pmc_fulltext`、`openalex_literature`、`wiley_alz`
+- 通用中文文献：`yiigle_zhjyyxzz`、`cma_lab_management`、`yiigle_fulltext`
+- 通用国际文献：`pubmed_literature`、`pmc_fulltext`、`openalex_literature`
+- 神经/认知方向中文专科文献：`yiigle_zhsjkzz`，仅在项目画像涉及神经、认知障碍、AD 或相关神经标志物时装配
+- AD 专用国际专科文献：`wiley_alz`，仅在项目画像涉及 Alzheimer、AD、MCI、认知障碍、p-tau、Aβ、amyloid 等方向时装配
 - 外部科学数据库：`life_science_research`，适用于标志物、蛋白、基因、通路、临床研究、遗传证据和公共数据库线索
 
-场景可以出现 `completed`、`no_results`、`deferred` 或失败状态，但不能“无记录”。`no_results` 必须包含检索式和范围说明；`deferred` 必须说明暂缓原因和影响；失败状态必须进入兜底链路。
+适用场景可以出现 `completed`、`no_results`、`deferred` 或失败状态，但不能“无记录”。`no_results` 必须包含检索式和范围说明；`deferred` 必须说明范围排除或暂缓原因和影响；失败状态必须进入兜底链路。非适用专科信源不应进入客户报告的资料缺口。
 
 ## V2.1 文献证据增强流程
 

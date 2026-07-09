@@ -71,29 +71,40 @@ def build_collection_alerts(
     materials: list[dict[str, Any]],
     evidence_cards: list[dict[str, Any]],
     scenario_statuses: list[dict[str, Any]],
+    required_scenario_ids: list[str] | set[str] | None = None,
 ) -> dict[str, Any]:
     """Summarize collection quality risks for business-facing outputs."""
+    required_ids = set(required_scenario_ids or [])
     failed = [
         scenario
         for scenario in scenario_statuses
         if scenario.get("status") in CRITICAL_STATUSES
+        and (not required_ids or scenario.get("scenario_id") in required_ids)
     ]
     fallback_missing = [
         scenario
         for scenario in scenario_statuses
         if scenario_needs_fallback(scenario) and not has_fallback_record(scenario)
+        and (not required_ids or scenario.get("scenario_id") in required_ids)
     ]
     no_results = [
-        scenario for scenario in scenario_statuses if scenario.get("status") == "no_results"
+        scenario
+        for scenario in scenario_statuses
+        if scenario.get("status") == "no_results"
+        and (not required_ids or scenario.get("scenario_id") in required_ids)
     ]
     not_started = [
         scenario
         for scenario in scenario_statuses
         if scenario.get("status") == "not_started"
         and scenario.get("scenario_id") not in OPTIONAL_NOT_STARTED_SCENARIOS
+        and (not required_ids or scenario.get("scenario_id") in required_ids)
     ]
     completed = [
-        scenario for scenario in scenario_statuses if scenario.get("status") == "completed"
+        scenario
+        for scenario in scenario_statuses
+        if scenario.get("status") == "completed"
+        and (not required_ids or scenario.get("scenario_id") in required_ids)
     ]
 
     critical_messages: list[str] = []
