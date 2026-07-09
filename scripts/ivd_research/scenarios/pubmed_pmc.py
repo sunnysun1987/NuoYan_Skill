@@ -1062,5 +1062,6 @@ def _duplicate_keys(article: dict[str, Any]) -> list[str]:
             keys.append(f"{key}:{value.lower()}")
     title = str(article.get("title") or "").strip().lower()
     if title:
-        keys.append(f"title:{re.sub(r'\\s+', ' ', title)}")
+        normalized_title = re.sub(r"\s+", " ", title)
+        keys.append(f"title:{normalized_title}")
     return keys

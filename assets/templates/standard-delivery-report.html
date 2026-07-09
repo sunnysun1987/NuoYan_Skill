@@ -438,9 +438,28 @@
         <div class="metric-grid compact">
           <div class="metric-card"><div class="value warn">{{ collection_gap_summary.gap_count }}</div><div class="label">未补齐缺口</div></div>
           <div class="metric-card"><div class="value info">{{ collection_gap_summary.fallback_covered_count }}</div><div class="label">已兜底待复核</div></div>
+          <div class="metric-card"><div class="value danger">{{ source_quality.high_count }}</div><div class="label">疑似假阴性</div></div>
           <div class="metric-card"><div class="value">{{ materials|length }}</div><div class="label">已登记材料</div></div>
-          <div class="metric-card"><div class="value warn">{{ failed_scenarios|length }}</div><div class="label">受限来源</div></div>
         </div>
+        {% if source_quality.issue_count %}
+        <div class="quality-audit-panel">
+          <h3>采集质量审计</h3>
+          <p>{{ source_quality.headline }}</p>
+          <div class="quality-audit-list">
+            {% for issue in source_quality.issues %}
+            <article class="quality-audit-item">
+              <div class="gap-card-head">
+                <span class="status-pill {{ issue.status_level }}">{{ "高风险" if issue.severity == "high" else "需复核" }}</span>
+                <span class="owner-pill">{{ issue.source }}</span>
+              </div>
+              <p><b>发现</b>：{{ issue.finding }}</p>
+              <p><b>依据</b>：{{ issue.evidence }}</p>
+              <p><b>建议</b>：{{ issue.recommendation }}</p>
+            </article>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
         <div class="gap-card-grid" id="gap-workbench">
           {% for row in collection_gap_rows %}
           <article class="gap-card">

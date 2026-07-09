@@ -65,29 +65,29 @@ nuoyan show-status --task-id <task_id> --json
 - AD 专用国际专科文献：`wiley_alz`，仅在项目画像涉及 Alzheimer、AD、MCI、认知障碍、p-tau、Aβ、amyloid 等方向时装配
 - 外部科学数据库：`life_science_research`，适用于标志物、蛋白、基因、通路、临床研究、遗传证据和公共数据库线索
 
-适用场景可以出现 `completed`、`no_results`、`deferred` 或失败状态，但不能“无记录”。`no_results` 必须包含检索式和范围说明；`deferred` 必须说明范围排除或暂缓原因和影响；失败状态必须进入兜底链路。非适用专科信源不应进入客户报告的资料缺口。
+适用场景可以出现 `completed`、`no_results`、`deferred` 或失败状态，但不能“无记录”。`no_results` 必须包含检索式、检索层级和范围说明；`deferred` 必须说明范围排除或暂缓原因和影响；失败状态必须进入兜底链路。非适用专科信源不应进入客户报告的资料缺口。
 
 ## V2.1 文献证据增强流程
 
 1. 确认文献 profile 和召回数量，不允许默认无上限全量抓取。
-2. 运行 PubMed/PMC/OpenAlex 和中文文献场景，保留 PMID、PMCID、DOI、结构化 Abstract、Similar articles、全文/PDF 状态和失败原因。
+2. 运行 PubMed/PMC/OpenAlex 和中文文献场景，英文来源必须先使用英文核心词层级，再使用产品/方法学/样本/预期用途等宽检索层级；保留 PMID、PMCID、DOI、结构化 Abstract、Similar articles、全文/PDF 状态和失败原因。
 3. 标准完整调研先执行 LSR-first gate。课题涉及标志物、蛋白、基因、通路、临床试验、遗传证据，或完整 IVD 检测项目/检测试剂盒/免疫分析/POCT/临床用途画像时，先调用 life-science-research 插件；结果整理为 JSON 后使用 `import-life-science-findings` 回写材料管线。只有用户明确确认“仅做注册/竞品/标准，不做科学数据库证据”时，才允许记录豁免。
 4. 对本地文献清单、腾讯文档导出表或企业共享目录，使用 `import-literature-table` 或 `import-local` 导入。
 5. 运行 `generate-evidence-cards` 生成 V2.1 证据卡，证据卡应包含来源追溯、研发定位、指标事实、关键摘录、局限和补证任务。
 6. 运行 `build-knowledge` 生成指标事实、主题索引、候选去重和文献关系图。
-7. 运行 `export-review`、`build-standard-delivery` 和 `verify-package`，确认 `v21_assets_ready` 和 `business_ready`。
+7. 运行 `source-quality`、`export-review`、`build-standard-delivery` 和 `verify-package`，确认 no_results 不存在高风险假阴性、`v21_assets_ready` 和 `business_ready`。
 
 ## 采集失败兜底链路
 
 遇到 DNS、HTTP 429、连接失败、页面结构变化、登录态、验证码、权限或下载失败时，不得直接跳过。按以下顺序处理并记录：
 
-1. 改写/缩短检索式重试，避免超长 query、混合中英文和过多限定词导致检索失败。CMDE、标准、OpenAlex、中文全文和中文期刊应先用检测项目/靶标核心词，再使用产品提示、宽业务词和原始检索式作为兜底层级。
+1. 改写/缩短检索式重试，避免超长 query、混合中英文和过多限定词导致检索失败。CMDE、标准、中文全文和中文期刊应先用检测项目/靶标核心词，再使用产品提示、宽业务词和原始检索式作为兜底层级；PubMed、PMC 和 OpenAlex 应先用英文核心词，再使用产品提示、方法学、样本类型和预期用途等宽检索层级。
 2. 使用公开官方来源、PubMed 页面、PMC 页面、OpenAlex 网页、机构公告或期刊官网手工检索；取得有效结果后用 `import-finding` 写入材料管线。
 3. 对需要 JavaScript、登录态或结构未知的网站，运行 `site-profile`、`browser-workflow`、`probe-browser-workflow` 或 `scout-browser-workflow`，并使用 `record-site-observation` 记录观察结果。
 4. 对验证码、付费墙、机构权限、Cloudflare 真人验证等限制，不得绕过；应请求用户提供合法取得的文件、链接或登录后可见材料。
 5. 仍无法完成时，将来源状态、失败原因、兜底动作和下一步补证任务写入报告“缺口与任务”和 Excel 审阅表。
 
-失败或受限来源不能被包装成“未发现证据”。报告应把补证任务区分为“未补齐缺口”和“已公开兜底部分补齐”。公开兜底只说明已有同类型材料支持初步复核，不等于官方通道完成；中文特定来源只能由中文公开补证或本地导入材料兜底，不能被 PubMed/LSR 泛文献自动覆盖。`business_ready` 必须保持 false，直到来源覆盖、人工复核和补证任务满足验收条件。
+失败或受限来源不能被包装成“未发现证据”。单一检索式判空、缺少核心词层级、检索词过长或与其他文献/科学数据库结果矛盾时，应作为“疑似假阴性”进入采集质量审计。报告应把补证任务区分为“未补齐缺口”和“已公开兜底部分补齐”。公开兜底只说明已有同类型材料支持初步复核，不等于官方通道完成；中文特定来源只能由中文公开补证或本地导入材料兜底，不能被 PubMed/LSR 泛文献自动覆盖。`business_ready` 必须保持 false，直到来源覆盖、采集质量审计、人工复核和补证任务满足验收条件。
 
 ## Chrome 观察流程
 

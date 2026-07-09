@@ -18,8 +18,8 @@ import time
 from pathlib import Path
 from typing import Any
 
-from ivd_research.models import FailureType, Material
-from ivd_research.scenarios.base import ScenarioResult, now_iso
+from ivd_research.models import FailureType
+from ivd_research.scenarios.base import now_iso
 from ivd_research.scenarios.nmpa_competitor import _detect_methodology
 
 

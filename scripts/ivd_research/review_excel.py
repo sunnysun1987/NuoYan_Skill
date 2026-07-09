@@ -10,6 +10,7 @@ from openpyxl.utils import get_column_letter
 from .jsonl import append_jsonl, read_jsonl, write_json
 from .constants import EVIDENCE_STRENGTH_LABELS
 from .quality import build_collection_alerts
+from .source_quality import build_source_quality_audit
 from .project_profile import formal_scenarios_for
 from .status import load_task
 
@@ -204,6 +205,13 @@ def export_review(task_dir: Path) -> dict:
         scenario_statuses=scenario_statuses,
         required_scenario_ids=required_scenarios,
     )
+    source_quality = build_source_quality_audit(
+        task_dir,
+        task=task.model_dump(mode="json"),
+        materials=materials,
+        scenario_statuses=scenario_statuses,
+        required_scenario_ids=required_scenarios,
+    )
     wb = Workbook()
     wb.remove(wb.active)
 
@@ -215,6 +223,7 @@ def export_review(task_dir: Path) -> dict:
     alerts_ws.append(["证据卡数", collection_alerts["evidence_card_count"]])
     alerts_ws.append(["失败场景数", collection_alerts["failed_count"]])
     alerts_ws.append(["公开兜底部分补齐场景数", collection_alerts.get("fallback_covered_count", 0)])
+    alerts_ws.append(["疑似假阴性高风险数", source_quality.get("high_count", 0)])
     alerts_ws.append(["未启动场景数", collection_alerts["not_started_count"]])
     alerts_ws.append([])
     alerts_ws.append(["必须先处理的问题", ""])
@@ -224,6 +233,15 @@ def export_review(task_dir: Path) -> dict:
     alerts_ws.append(["待补证或待确认事项", ""])
     for message in collection_alerts["warning_messages"]:
         alerts_ws.append(["事项", message])
+    alerts_ws.append([])
+    alerts_ws.append(["采集质量审计", ""])
+    for issue in source_quality.get("issues", []):
+        alerts_ws.append(
+            [
+                issue.get("severity", ""),
+                f"{issue.get('source', '')}：{issue.get('finding', '')} 建议：{issue.get('recommendation', '')}",
+            ]
+        )
 
     for sheet in list(dict.fromkeys(SHEET_BY_TYPE.values())):
         ws = wb.create_sheet(sheet)

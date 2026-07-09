@@ -26,6 +26,9 @@ def test_literature_retmax_all_flows_to_pubmed_and_pmc():
     assert plans["pubmed_literature"][0].params["retmax"] == "all"
     assert plans["pmc_fulltext"][0].params["retmax"] == "all"
     assert plans["openalex_literature"][0].params["retmax"] == "all"
+    assert plans["pubmed_literature"][0].params["query_role"] == "pubmed_core_keywords"
+    assert plans["pmc_fulltext"][0].params["query_role"] == "pmc_core_keywords"
+    assert plans["openalex_literature"][0].params["query_role"] == "openalex_core_keywords"
     query = plans["pubmed_literature"][0].query
     assert "血浆" not in query
     assert "阿尔茨海默病辅助诊断" not in query
@@ -73,6 +76,8 @@ def test_hcg_query_plan_does_not_enable_alzheimer_specific_source():
     assert plans["standards_current"][0].params["query_role"] == "core_cn"
     assert "serum" not in plans["openalex_literature"][0].query.lower()
     assert "urine" not in plans["openalex_literature"][0].query.lower()
+    assert plans["pubmed_literature"][0].query == "human chorionic gonadotropin beta hCG immunoassay"
+    assert plans["pmc_fulltext"][0].query == "human chorionic gonadotropin beta hCG immunoassay"
     assert plans["openalex_literature"][0].query == "human chorionic gonadotropin beta hCG immunoassay"
     query_text = "\n".join(
         plan.query

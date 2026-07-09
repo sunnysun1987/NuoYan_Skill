@@ -5,7 +5,6 @@ This fills the critical gap where agent-side web search results were invisible
 to the CLI-driven HTML/Excel/zip pipeline.
 """
 
-import hashlib
 from pathlib import Path
 from typing import Any
 

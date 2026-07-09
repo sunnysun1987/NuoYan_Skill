@@ -55,6 +55,7 @@ from .scenarios import (
 from .scenarios.registry import get_scenario
 from .scenarios.base import ScenarioResult
 from .site_profiles import record_site_observation, site_profile
+from .source_quality import build_source_quality_audit
 from .source_adapters.life_science_research_bridge import (
     build_life_science_research_plan,
     import_life_science_findings,
@@ -348,6 +349,9 @@ def _record_browser_result(task_dir: Path, state, scenario: str, result: dict) -
             "event": "delivery_browser_workflow_ran",
             "scenario_id": scenario,
             "status": result["status"],
+            "query_role": result.get("query_role", ""),
+            "attempted_query": result.get("attempted_query", ""),
+            "material_count": len(materials),
             "target_url": result["target_url"],
             "final_url": result["final_url"],
             "snapshot_paths": result["snapshot_paths"],
@@ -416,6 +420,17 @@ def update_confirmations_command(
     except ValueError as exc:
         raise typer.BadParameter(str(exc)) from exc
     emit(result, json_output)
+
+
+@app.command("source-quality")
+def source_quality_command(
+    task_id: str = typer.Option(..., "--task-id"),
+    output_root: Optional[Path] = typer.Option(None, "--output-root"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    root = output_root or default_output_root()
+    task_dir = find_task(root, task_id)
+    emit(build_source_quality_audit(task_dir), json_output)
 
 
 @app.command("run-scenario")
@@ -980,6 +995,7 @@ def run_delivery_pipeline_command(
             if scenario not in plans_by_scenario:
                 continue
             result = None
+            attempts = []
             for plan in plans_by_scenario.get(scenario) or []:
                 for mode in _browser_launch_modes(launch_mode):
                     browser_kwargs = {
@@ -1000,6 +1016,16 @@ def run_delivery_pipeline_command(
                     result["attempted_query"] = plan.query
                     result["attempted_launch_mode"] = mode
                     collection_results.append(result)
+                    attempts.append(
+                        {
+                            "query_role": plan.params.get("query_role", ""),
+                            "query": plan.query,
+                            "launch_mode": mode,
+                            "status": result.get("status", ""),
+                            "material_count": len(result.get("materials", []) or []),
+                            "message_zh": result.get("message_zh", ""),
+                        }
+                    )
                     if not _is_edge_missing_result(result) or mode == "playwright":
                         break
                 if result and (
@@ -1009,6 +1035,17 @@ def run_delivery_pipeline_command(
                     break
             if result is None:
                 continue
+            if attempts:
+                append_jsonl(
+                    task_dir / "logs" / "events.jsonl",
+                    {
+                        "time": now_iso(),
+                        "event": "scenario_query_attempts",
+                        "scenario_id": scenario,
+                        "action": "run_delivery_pipeline",
+                        "attempts": attempts,
+                    },
+                )
             _record_browser_result(task_dir, state, scenario, result)
             save_task(state)
 
@@ -1017,6 +1054,7 @@ def run_delivery_pipeline_command(
                 continue
             collector = SCENARIO_COLLECTORS[scenario]
             result = None
+            attempts = []
             for plan in plans_by_scenario.get(scenario) or []:
                 params = {
                     "material_id": next_material_id(task_dir),
@@ -1029,12 +1067,32 @@ def run_delivery_pipeline_command(
                 except Exception as exc:
                     result = _exception_result(scenario, exc)
                 collection_results.append(result.model_dump(mode="json"))
+                attempts.append(
+                    {
+                        "query_role": plan.params.get("query_role", ""),
+                        "query": plan.query,
+                        "status": result.status,
+                        "material_count": len(result.materials),
+                        "message_zh": result.message_zh,
+                    }
+                )
                 if result.materials or result.status not in {
                     "no_results",
                     "no_valid_materials",
                     "collection_failed",
                 }:
                     break
+            if attempts:
+                append_jsonl(
+                    task_dir / "logs" / "events.jsonl",
+                    {
+                        "time": now_iso(),
+                        "event": "scenario_query_attempts",
+                        "scenario_id": scenario,
+                        "action": "run_delivery_pipeline",
+                        "attempts": attempts,
+                    },
+                )
             if result is not None:
                 _record_scenario_result(task_dir, state, scenario, result)
                 save_task(state)

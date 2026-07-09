@@ -149,7 +149,7 @@ def openalex_search(query: str, *, retmax: int, date_range: Any = None) -> tuple
             response = client.get(url, headers={"User-Agent": USER_AGENT})
         response.raise_for_status()
         return response.json(), response.text, url
-    except Exception as exc:
+    except Exception:
         raw_text = _curl_get(url)
         return json.loads(raw_text), raw_text, url
 
@@ -186,7 +186,7 @@ def _save_literature_text(task_dir: Path, filename: str, content: str) -> str:
 def format_openalex_text(work: dict[str, Any], query: str) -> str:
     raw_abstract = _abstract_from_inverted_index(work.get("abstract_inverted_index"))
     lines = [
-        f"来源：OpenAlex",
+        "来源：OpenAlex",
         f"检索式：{query}",
         f"OpenAlex ID：{work.get('id', '')}",
         f"标题：{work.get('display_name') or work.get('title') or ''}",

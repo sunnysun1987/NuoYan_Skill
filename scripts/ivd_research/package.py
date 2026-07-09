@@ -14,6 +14,7 @@ from .project_profile import (
     project_domain,
 )
 from .quality import build_collection_alerts
+from .source_quality import build_source_quality_audit
 from .status import now_iso
 
 FORMAL_SCENARIOS = [
@@ -677,9 +678,18 @@ def verify_package(task_dir: Path) -> dict:
             task = {}
     scenario_statuses = list((task.get("scenario_statuses") or {}).values())
     missing_confirmations = missing_business_confirmations(task)
+    materials = list(read_jsonl(task_dir / "data" / "materials.jsonl"))
+    evidence_cards = list(read_jsonl(task_dir / "data" / "evidence_cards.jsonl"))
     collection_alerts = build_collection_alerts(
-        materials=list(read_jsonl(task_dir / "data" / "materials.jsonl")),
-        evidence_cards=list(read_jsonl(task_dir / "data" / "evidence_cards.jsonl")),
+        materials=materials,
+        evidence_cards=evidence_cards,
+        scenario_statuses=scenario_statuses,
+        required_scenario_ids=formal_scenarios_for(task),
+    )
+    source_quality = build_source_quality_audit(
+        task_dir,
+        task=task,
+        materials=materials,
         scenario_statuses=scenario_statuses,
         required_scenario_ids=formal_scenarios_for(task),
     )
@@ -746,6 +756,11 @@ def verify_package(task_dir: Path) -> dict:
     coverage_warnings.extend(life_science_gate_warnings)
     warnings.extend(coverage_warnings)
     warnings.extend(fallback_warnings(collection_alerts))
+    for issue in source_quality.get("issues", []):
+        if issue.get("severity") == "high":
+            warnings.append(
+                f"采集质量审计：{issue.get('source')} {issue.get('finding')} {issue.get('recommendation')}"
+            )
     warnings.extend(network_warnings(network_preflight))
     scenario_coverage_ready = not coverage_warnings
     search_profile_ready = not missing_confirmations
@@ -755,12 +770,14 @@ def verify_package(task_dir: Path) -> dict:
         or network_preflight.get("network_ok", False)
         or not network_unresolved_scenarios
     )
+    source_quality_ready = bool(source_quality.get("ready", False))
     business_ready = (
         search_profile_ready
         and final_review_ready
         and scenario_coverage_ready
         and fallback_ready
         and network_ready
+        and source_quality_ready
     )
     counts = {
         "materials": material_count,
@@ -787,12 +804,14 @@ def verify_package(task_dir: Path) -> dict:
         "missing_confirmations": missing_confirmations,
         "fallback_ready": fallback_ready,
         "network_ready": network_ready,
+        "source_quality_ready": source_quality_ready,
         "life_science_coverage": life_science,
         "network_preflight": network_preflight,
         "network_unresolved_scenarios": network_unresolved_scenarios,
         "business_ready": business_ready,
         "counts": counts,
         "collection_alerts": collection_alerts,
+        "source_quality": source_quality,
         "standard_delivery": {
             "delivery_dir": str(delivery_paths["delivery_dir"]),
             "report": str(delivery_paths["report"]),
@@ -816,6 +835,7 @@ def verify_package(task_dir: Path) -> dict:
         "missing_confirmations": missing_confirmations,
         "fallback_ready": fallback_ready,
         "network_ready": network_ready,
+        "source_quality_ready": source_quality_ready,
         "life_science_coverage": life_science,
         "network_preflight": network_preflight,
         "network_unresolved_scenarios": network_unresolved_scenarios,
@@ -823,6 +843,7 @@ def verify_package(task_dir: Path) -> dict:
         "counts": counts,
         "standard_delivery": manifest["standard_delivery"],
         "collection_alerts": collection_alerts,
+        "source_quality": source_quality,
         "missing": missing,
         "warnings": warnings,
         "manifest_path": str(manifest_path),

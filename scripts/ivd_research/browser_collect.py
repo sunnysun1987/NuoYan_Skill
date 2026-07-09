@@ -1,9 +1,7 @@
 import json
-import hashlib
 import shutil
 import socket
 import subprocess
-import tempfile
 import time
 import urllib.request
 from pathlib import Path

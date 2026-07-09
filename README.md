@@ -90,6 +90,7 @@ V2.1 adds a standard source-site baseline and lightweight local knowledge assets
 - `nuoyan import-life-science-findings --task-id <task_id> --findings-json-file external_findings.json --json` imports plugin findings into the material pipeline.
 - `nuoyan import-literature-table --task-id <task_id> --path literature.xlsx --json` imports local CSV/XLSX literature lists.
 - `nuoyan build-knowledge --task-id <task_id> --json` generates metric facts, topic index, dedup index and a literature graph.
+- `nuoyan source-quality --task-id <task_id> --json` audits no-result sources for possible false negatives, including single-query no-results, missing core-query attempts, overconstrained long queries and cross-source contradictions such as OpenAlex no-results while PubMed/PMC/LSR already has related literature.
 
 Professional Chinese reading support is built into this repository as a delivery-time capability. R&D users should receive an HTML report that already contains Chinese reading text; they do not need to run translation commands or configure accounts:
 
@@ -113,6 +114,8 @@ nuoyan verify-package --task-id <task_id> --json
 Key fields include `search_profile_ready`, `scenario_coverage_ready`, `fallback_ready`, `network_ready`, `v21_assets_ready`, `final_review_ready` and `business_ready`.
 
 `business_ready=true` requires more than generated files. The package must have confirmed search scope, complete source coverage or documented fallback, V2.1 source-site and knowledge assets, reviewed evidence cards, and a valid standard delivery folder.
+
+V2.1.7 adds source-quality auditing to make `no_results` reviewable rather than treating it as final evidence absence. English literature sources now use core-first query layers for PubMed, PMC and OpenAlex before broad product/methodology terms. Standard delivery records query attempts for HTTP and browser workflows, surfaces high-risk suspected false negatives in the HTML gap tab and Excel alert sheet, and keeps `business_ready=false` when high-risk source-quality issues remain.
 
 V2.1.6 adds source-safe query planning and gap reconciliation. CMDE, standards, OpenAlex, Chinese full-text and Chinese journal sources start with target/analyte core terms before product hints, broad business terms or the original query are attempted. Standard reports now separate unresolved gaps from “public fallback partially covered” items, and Excel alerts include the fallback-covered source count. Public fallback never closes an official channel by itself; Chinese-specific sources are only covered by Chinese public fallback or local imports, not by generic PubMed/LSR literature.
 

@@ -639,6 +639,41 @@ tbody tr:hover td { background: var(--bg-table-stripe); }
 .insight.warn  { border-left-color: var(--warn);  background: var(--warn-light); }
 .insight.danger{ border-left-color: var(--danger);background: var(--danger-light); }
 
+.quality-audit-panel {
+  border: 1px solid var(--border-light);
+  border-left: 4px solid var(--danger);
+  border-radius: var(--radius-md);
+  background: #fff;
+  padding: 16px 18px;
+  margin: 18px 0;
+  box-shadow: var(--shadow-sm);
+}
+.quality-audit-panel h3 {
+  margin: 0 0 6px;
+  color: var(--text-primary);
+  font-size: 16px;
+}
+.quality-audit-panel > p {
+  margin: 0 0 12px;
+  color: var(--text-secondary);
+}
+.quality-audit-list {
+  display: grid;
+  gap: 10px;
+}
+.quality-audit-item {
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  background: var(--bg-soft);
+}
+.quality-audit-item p {
+  margin: 7px 0 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
 /* ============================================================
    TOC (Table of Contents)
    ============================================================ */

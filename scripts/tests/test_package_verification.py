@@ -149,6 +149,56 @@ def _mark_formal_scenarios(task_dir: Path, status: str = "no_results") -> None:
     task["scenario_statuses"]["pubmed_literature"]["status"] = "completed"
     task["scenario_statuses"]["pubmed_literature"]["material_count"] = 1
     write_json(task_dir / "task.json", task)
+    query_attempts = {
+        "cmde_regulatory": [
+            ("core_cn", "p-tau217"),
+            ("broad_cn", "血浆 p-tau217 阿尔茨海默病"),
+        ],
+        "standards_current": [
+            ("core_cn", "p-tau217"),
+            ("core_product_cn", "p-tau217 测定试剂盒"),
+        ],
+        "openalex_literature": [
+            ("openalex_core_keywords", "plasma p-tau217 Alzheimer disease immunoassay"),
+            ("openalex_broad_keywords", "plasma p-tau217 Alzheimer disease IVD"),
+        ],
+        "yiigle_fulltext": [
+            ("yiigle_fulltext_core_expression", "篇关摘=(p-tau217)"),
+            ("yiigle_fulltext_expression", "篇关摘=(血浆 p-tau217 阿尔茨海默病)"),
+        ],
+        "yiigle_zhjyyxzz": [
+            ("core_cn", "p-tau217"),
+            ("broad_cn", "血浆 p-tau217 阿尔茨海默病"),
+        ],
+        "cma_lab_management": [
+            ("core_cn", "p-tau217"),
+            ("broad_cn", "血浆 p-tau217 阿尔茨海默病"),
+        ],
+        "yiigle_zhsjkzz": [
+            ("core_cn", "p-tau217"),
+            ("broad_cn", "血浆 p-tau217 阿尔茨海默病"),
+        ],
+    }
+    for scenario_id, attempts in query_attempts.items():
+        if scenario_id not in {item for item in formal_scenarios_for(task)}:
+            continue
+        append_jsonl(
+            task_dir / "logs" / "events.jsonl",
+            {
+                "event": "scenario_query_attempts",
+                "scenario_id": scenario_id,
+                "attempts": [
+                    {
+                        "query_role": role,
+                        "query": query,
+                        "status": status,
+                        "material_count": 0,
+                        "message_zh": "离线测试：核心检索层级已记录。",
+                    }
+                    for role, query in attempts
+                ],
+            },
+        )
 
 
 def _import_complete_life_science_coverage(task_dir: Path) -> None:

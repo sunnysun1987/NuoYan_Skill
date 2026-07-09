@@ -519,6 +519,48 @@ def _source_safe_cn_plans(state: Any, *, include_product_hint: bool = True) -> l
     return deduped
 
 
+def _english_literature_plans(
+    state: Any,
+    *,
+    source: str,
+    literature_profile: dict[str, Any],
+    literature_date_range: Any,
+) -> list[ScenarioQueryPlan]:
+    common_params = {
+        "retmax": literature_profile["retmax"],
+        "date_range": literature_date_range,
+        "literature_profile": literature_profile["profile_id"],
+    }
+    if source == "pubmed":
+        common_params.update(
+            {
+                "similar_retmax": literature_profile["similar_retmax"],
+                "similar_article_source_limit": literature_profile[
+                    "similar_article_source_limit"
+                ],
+                "pdf_download_limit": literature_profile["pdf_download_limit"],
+            }
+        )
+    elif source == "pmc":
+        common_params["pdf_download_limit"] = literature_profile["pdf_download_limit"]
+    core = _openalex_core_query(state)
+    broad = _english_primary_query(state)
+    plans = [
+        ScenarioQueryPlan(
+            query=core,
+            params={"query_role": f"{source}_core_keywords", **common_params},
+        )
+    ]
+    if broad and broad != core:
+        plans.append(
+            ScenarioQueryPlan(
+                query=broad,
+                params={"query_role": f"{source}_broad_keywords", **common_params},
+            )
+        )
+    return plans
+
+
 def _openalex_plans(state: Any, literature_profile: dict[str, Any], literature_date_range: Any) -> list[ScenarioQueryPlan]:
     retmax = literature_profile["retmax"]
     common_params = {
@@ -552,7 +594,6 @@ def scenario_query_plans(state: Any) -> dict[str, list[ScenarioQueryPlan]]:
     patent_scope = str(_confirmation(state, "patent_scope", "全球") or "全球").strip()
     literature_date_range = _literature_date_range(state) or _confirmation(state, "literature_years", 5)
     literature_profile = _literature_profile(state)
-    literature_retmax = literature_profile["retmax"]
     fulltext_expression = build_yiigle_fulltext_expression(
         keyword=broad,
         date_range=literature_date_range,
@@ -593,32 +634,18 @@ def scenario_query_plans(state: Any) -> dict[str, list[ScenarioQueryPlan]]:
         ],
         "yiigle_zhjyyxzz": _journal_plans(state),
         "cma_lab_management": _journal_plans(state),
-        "pubmed_literature": [
-            ScenarioQueryPlan(
-                query=_english_primary_query(state),
-                params={
-                    "query_role": "pubmed_keywords",
-                    "retmax": literature_retmax,
-                    "date_range": literature_date_range,
-                    "literature_profile": literature_profile["profile_id"],
-                    "similar_retmax": literature_profile["similar_retmax"],
-                    "similar_article_source_limit": literature_profile["similar_article_source_limit"],
-                    "pdf_download_limit": literature_profile["pdf_download_limit"],
-                },
-            )
-        ],
-        "pmc_fulltext": [
-            ScenarioQueryPlan(
-                query=_english_primary_query(state),
-                params={
-                    "query_role": "pmc_keywords",
-                    "retmax": literature_retmax,
-                    "date_range": literature_date_range,
-                    "literature_profile": literature_profile["profile_id"],
-                    "pdf_download_limit": literature_profile["pdf_download_limit"],
-                },
-            )
-        ],
+        "pubmed_literature": _english_literature_plans(
+            state,
+            source="pubmed",
+            literature_profile=literature_profile,
+            literature_date_range=literature_date_range,
+        ),
+        "pmc_fulltext": _english_literature_plans(
+            state,
+            source="pmc",
+            literature_profile=literature_profile,
+            literature_date_range=literature_date_range,
+        ),
         "openalex_literature": _openalex_plans(state, literature_profile, literature_date_range),
         "yiigle_fulltext": [
             ScenarioQueryPlan(

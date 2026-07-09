@@ -13,6 +13,7 @@ from .quality import (
     build_collection_alerts,
     fallback_materials_for_scenario,
 )
+from .source_quality import build_source_quality_audit
 from .status import now_iso
 from .translation import (
     TranslationEngine,
@@ -3264,6 +3265,13 @@ def build_standard_report(task_dir: Path, output: Path | None = None) -> dict:
         materials=materials,
         evidence_cards=evidence_cards,
     )
+    source_quality = build_source_quality_audit(
+        task_dir,
+        task=task,
+        materials=materials,
+        scenario_statuses=scenario_statuses,
+        required_scenario_ids=required_scenarios,
+    )
     analysis = build_feasibility_analysis(materials, evidence_cards, visible_scenario_statuses)
     metric_facts = list(read_jsonl(task_dir / "knowledge" / "metric_facts.jsonl"))
     source_runs = list(read_jsonl(task_dir / "data" / "source_runs.jsonl"))
@@ -3556,6 +3564,7 @@ def build_standard_report(task_dir: Path, output: Path | None = None) -> dict:
         workflow_version=WORKFLOW_VERSION,
         collection_gap_rows=collection_gap_rows,
         collection_gap_summary=collection_gap_summary,
+        source_quality=source_quality,
         analysis=analysis,
         business_decision=business_decision,
         evidence_map=evidence_map,
