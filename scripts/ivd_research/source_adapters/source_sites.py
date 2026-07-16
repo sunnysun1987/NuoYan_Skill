@@ -94,12 +94,12 @@ SOURCE_SITES: list[SourceSite] = [
         display_name="中华医学期刊全文数据库",
         source_category="literature",
         base_url="https://www.yiigle.com/",
-        search_url_template="https://www.yiigle.com/searchMobile?ind=3&q={query}",
-        access_mode="http",
+        search_url_template="https://www.yiigle.com/apiVue/search/searchList",
+        access_mode="public_api",
         query_fields=["篇关摘", "文献类型", "出版日期"],
-        capture_fields=["title", "abstract", "literature_type", "publication_date", "fulltext_status"],
+        capture_fields=["title", "abstract", "doi", "journal", "authors", "literature_type", "publication_date", "fulltext_status"],
         adapter_id="yiigle_fulltext",
-        restriction_notes="机构权限限制必须显式记录，不输出半截中文译文。",
+        restriction_notes="公开 API 保存题录和摘要；PDF/全文若需机构权限必须显式记录。",
     ),
     SourceSite(
         source_site_id="wiley_alz",
@@ -210,4 +210,3 @@ def get_source_site(source_site_id: str) -> SourceSite | None:
 def export_source_sites(path: Path) -> None:
     payload = {"source_sites": [site.model_dump(mode="json") for site in SOURCE_SITES]}
     write_json(path, payload)
-

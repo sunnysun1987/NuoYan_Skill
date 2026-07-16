@@ -1,6 +1,5 @@
 import hashlib
 import json
-import re
 import shutil
 import zipfile
 from pathlib import Path
@@ -11,7 +10,6 @@ from .project_profile import (
     NETWORK_SENSITIVE_SCENARIOS,
     formal_scenarios_for,
     profile_text,
-    project_domain,
 )
 from .quality import build_collection_alerts
 from .source_quality import build_source_quality_audit
@@ -53,33 +51,7 @@ LIFE_SCIENCE_TRIGGER_TERMS = [
     "clinical trial",
     "genetic",
     "variant",
-    "阿尔茨海默",
-    "alzheimer",
-    "p-tau",
-    "ptau",
-    "aβ",
-    "abeta",
-    "amyloid",
-    "tau",
-    "nfl",
-    "hcg",
-    "β-hcg",
-    "beta-hcg",
-    "beta hcg",
-    "human chorionic gonadotropin",
-    "chorionic gonadotropin",
-    "绒毛膜促性腺激素",
-    "cgb",
 ]
-LIFE_SCIENCE_TRIGGER_PATTERNS = [
-    r"\bad\b",
-    r"\bcgb\d*\b",
-]
-LIFE_SCIENCE_REQUIRED_DOMAINS = {
-    "ad_biomarker",
-    "neurology",
-    "hcg",
-}
 LIFE_SCIENCE_AUTO_PRODUCT_TERMS = [
     "ivd",
     "体外诊断",
@@ -189,7 +161,9 @@ TRACE_DISPLAY_NAMES = {
 }
 
 TRACE_SUBDIR_DISPLAY_NAMES = {
-    "fallback_historical_ptau181": "01_历史证据兜底_fallback_historical_ptau181",
+    # Preserve the legacy source key when packaging old tasks, but do not leak
+    # the historical analyte name into new delivery directory labels.
+    "fallback_historical_ptau181": "01_历史证据兜底_historical_evidence",
     "fallback_official_api": "02_官方接口兜底_fallback_official_api",
     "literature": "03_文献材料_literature",
     "pubmed": "01_PubMed旧批次_pubmed",
@@ -533,9 +507,7 @@ def requires_life_science_research(task: dict) -> bool:
         return override
 
     haystack = profile_text(task)
-    return any(term.lower() in haystack for term in LIFE_SCIENCE_TRIGGER_TERMS) or any(
-        re.search(pattern, haystack) for pattern in LIFE_SCIENCE_TRIGGER_PATTERNS
-    ) or project_domain(task) in LIFE_SCIENCE_REQUIRED_DOMAINS or (
+    return any(term.lower() in haystack for term in LIFE_SCIENCE_TRIGGER_TERMS) or (
         bool(confirmations.get("collection_scope"))
         and any(term in haystack for term in LIFE_SCIENCE_AUTO_PRODUCT_TERMS)
     )

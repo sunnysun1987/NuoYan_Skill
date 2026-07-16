@@ -3,8 +3,10 @@ from ivd_research.reports import (
     build_business_collection_gaps,
     build_business_action_rows,
     build_collection_gap_summary,
+    build_expert_decision,
     build_metric_fact_rows,
     build_project_analysis_sections,
+    build_screening_cards,
     build_section_evidence_rows,
     normalize_evidence_cards,
     normalize_materials,
@@ -59,6 +61,64 @@ def _hcg_literature_material():
             "abstract": "Human chorionic gonadotropin assays support pregnancy-related testing and tumor monitoring workflows.",
             "keywords": ["human chorionic gonadotropin", "pregnancy", "immunoassay"],
         },
+    }
+
+
+def _multiplex_method_material():
+    return {
+        "material_id": "MAT-000003",
+        "source_scenario": "openalex_literature",
+        "material_type": "literature",
+        "title": "Potential-Resolved Multicolor Electrochemiluminescence for Multiplex Immunoassay in a Single Sample",
+        "source_url": "https://doi.org/10.1021/jacs.8b09422",
+        "raw_fields": {
+            "abstract": (
+                "Electrochemiluminescence supports multiplex immunoassay development "
+                "for multiple biomarkers in a single sample."
+            ),
+            "keywords": ["multiplex immunoassay", "electrochemiluminescence"],
+        },
+    }
+
+
+def _respiratory_method_material():
+    return {
+        "material_id": "MAT-000004",
+        "source_scenario": "pmc_fulltext",
+        "material_type": "literature",
+        "title": "Microfluidic-based virus detection methods for respiratory diseases",
+        "source_url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC7992628/",
+        "raw_fields": {
+            "abstract": (
+                "This review summarizes microfluidic-based detection technologies "
+                "for respiratory viruses."
+            ),
+            "keywords": ["respiratory disease", "virus detection", "biosensors"],
+        },
+    }
+
+
+def _hcg_confirmations():
+    return {
+        "primary_query": "beta-hCG定量检测试剂盒（荧光免疫层析法）",
+        "english_keywords": "beta hCG quantitative test kit fluorescence immunochromatography",
+        "chinese_synonyms": "β-hCG；人绒毛膜促性腺激素；hCG",
+        "sample_type": "血清/尿液",
+        "platform": "荧光免疫层析",
+        "methodology": "荧光免疫层析法",
+        "intended_use": "妊娠相关检测/辅助评估",
+    }
+
+
+def _pct_confirmations():
+    return {
+        "primary_query": "降钙素原 PCT 定量检测试剂盒（化学发光法）",
+        "english_keywords": "procalcitonin PCT immunoassay sepsis",
+        "chinese_synonyms": "降钙素原；PCT",
+        "sample_type": "血清/血浆",
+        "platform": "化学发光",
+        "methodology": "免疫分析",
+        "intended_use": "细菌感染和脓毒症风险辅助评估",
     }
 
 
@@ -133,21 +193,14 @@ def test_project_analysis_uses_literature_signals_and_current_marker():
     )
 
     joined = "\n".join(section["analysis"] for section in sections)
-    assert "p-Tau217" in joined
-    assert "p-Tau181" not in joined
+    assert "p-tau217" in joined.lower()
+    assert "p-tau181" not in joined.lower()
     assert "结构化 Abstract" in joined or "含结构化 Abstract" in joined
     assert "amyloid PET" in joined
 
 
 def test_hcg_project_analysis_does_not_fall_back_to_ad_template():
-    confirmations = {
-        "primary_query": "beta-hCG定量检测试剂盒（荧光免疫层析法）",
-        "english_keywords": "beta hCG quantitative test kit fluorescence immunochromatography",
-        "sample_type": "血清/尿液",
-        "platform": "荧光免疫层析",
-        "methodology": "荧光免疫层析法",
-        "intended_use": "妊娠相关检测/辅助评估",
-    }
+    confirmations = _hcg_confirmations()
 
     sections = build_project_analysis_sections(
         literature_materials=[_hcg_literature_material()],
@@ -174,14 +227,7 @@ def test_hcg_business_actions_do_not_use_ad_supplement_tasks():
         patent_materials=[],
         literature_materials=[_hcg_literature_material()],
         scenario_map={},
-        confirmations={
-            "primary_query": "beta-hCG定量检测试剂盒（荧光免疫层析法）",
-            "english_keywords": "beta hCG quantitative test kit fluorescence immunochromatography",
-            "sample_type": "血清/尿液",
-            "platform": "荧光免疫层析",
-            "methodology": "荧光免疫层析法",
-            "intended_use": "妊娠相关检测/辅助评估",
-        },
+        confirmations=_hcg_confirmations(),
     )
     joined = "\n".join(row["action"] for row in rows)
 
@@ -199,14 +245,7 @@ def test_hcg_business_decision_is_generic_ivd_not_ad_specific():
         standard_materials=[],
         patent_materials=[],
         scenario_map={},
-        confirmations={
-            "primary_query": "beta-hCG定量检测试剂盒（荧光免疫层析法）",
-            "english_keywords": "beta hCG quantitative test kit fluorescence immunochromatography",
-            "sample_type": "血清/尿液",
-            "platform": "荧光免疫层析",
-            "methodology": "荧光免疫层析法",
-            "intended_use": "妊娠相关检测/辅助评估",
-        },
+        confirmations=_hcg_confirmations(),
     )
     joined = "\n".join(
         [
@@ -220,6 +259,129 @@ def test_hcg_business_decision_is_generic_ivd_not_ad_specific():
     for forbidden in ["AD", "阿尔茨海默", "认知障碍", "PET/CSF"]:
         assert forbidden not in joined
     assert "hCG" in joined or "beta-hCG" in joined
+
+
+def test_hcg_project_profile_ignores_broad_multiplex_and_respiratory_literature_titles():
+    confirmations = _hcg_confirmations()
+    materials = [
+        _hcg_literature_material(),
+        _multiplex_method_material(),
+        _respiratory_method_material(),
+    ]
+
+    sections = build_project_analysis_sections(
+        literature_materials=materials,
+        regulatory_materials=[],
+        competitor_materials=[],
+        standard_materials=[],
+        patent_materials=[],
+        materials=materials,
+        confirmations=confirmations,
+    )
+    decision = build_business_decision(
+        materials=materials,
+        literature_materials=materials,
+        regulatory_materials=[],
+        competitor_materials=[],
+        standard_materials=[],
+        patent_materials=[],
+        scenario_map={},
+        confirmations=confirmations,
+    )
+    expert = build_expert_decision(
+        decision,
+        materials=materials,
+        screening_summary={"total": 3, "core": 1},
+        knowledge_status={"metric_fact_count": 0},
+        failed_scenarios=[],
+        collection_gap_summary={"gap_count": 0},
+        confirmations=confirmations,
+    )
+    joined = "\n".join(
+        [section["analysis"] for section in sections]
+        + [decision["conclusion"], "\n".join(decision["basis"]), expert["judgement"], expert["positioning"]]
+    )
+
+    for forbidden in ["甲型/乙型流感", "甲乙流", "发热门急诊", "呼吸道感染病原体", "流感季"]:
+        assert forbidden not in joined
+    assert "beta-hCG" in joined or "hCG" in joined
+
+
+def test_confirmed_generic_project_cannot_be_overridden_by_unrelated_material_titles():
+    confirmations = _pct_confirmations()
+    materials = [
+        _literature_material(),
+        _multiplex_method_material(),
+        _respiratory_method_material(),
+    ]
+
+    sections = build_project_analysis_sections(
+        literature_materials=materials,
+        regulatory_materials=[],
+        competitor_materials=[],
+        standard_materials=[],
+        patent_materials=[],
+        materials=materials,
+        confirmations=confirmations,
+    )
+    decision = build_business_decision(
+        materials=materials,
+        literature_materials=materials,
+        regulatory_materials=[],
+        competitor_materials=[],
+        standard_materials=[],
+        patent_materials=[],
+        scenario_map={},
+        confirmations=confirmations,
+    )
+    expert = build_expert_decision(
+        decision,
+        materials=materials,
+        screening_summary={"total": 3, "core": 1},
+        knowledge_status={"metric_fact_count": 0},
+        failed_scenarios=[],
+        collection_gap_summary={"gap_count": 0},
+        confirmations=confirmations,
+    )
+    joined = "\n".join(
+        [section["analysis"] for section in sections]
+        + [decision["conclusion"], expert["judgement"], expert["positioning"], expert["validation_focus"]]
+    )
+
+    assert "降钙素原" in joined
+    assert "细菌感染和脓毒症风险辅助评估" in joined
+    for forbidden in ["甲型/乙型流感", "发热门急诊", "AD 血液", "PET/CSF", "认知障碍专病门诊"]:
+        assert forbidden not in joined
+
+
+def test_screening_uses_confirmed_marker_aliases_without_taxonomy_entry():
+    material = {
+        "material_id": "MAT-PCT",
+        "source_scenario": "pubmed_literature",
+        "material_type": "literature",
+        "title": "Serum procalcitonin for sepsis risk assessment",
+        "source_url": "https://pubmed.ncbi.nlm.nih.gov/example/",
+        "raw_fields": {
+            "abstract": (
+                "Procalcitonin was measured in serum samples; p-tau217 and influenza "
+                "were mentioned only as unrelated comparators."
+            )
+        },
+    }
+    card = {
+        "evidence_card_id": "EC-PCT",
+        "material_id": "MAT-PCT",
+        "title": material["title"],
+        "summary": "Procalcitonin evidence for sepsis risk assessment.",
+    }
+
+    rows = build_screening_cards(
+        normalize_materials([material], []),
+        [card],
+        confirmations={**_pct_confirmations(), "chinese_synonyms": "降钙素原；procalcitonin；PCT"},
+    )
+
+    assert rows[0]["markers"] == ["降钙素原"]
 
 
 def test_collection_gaps_show_public_fallback_without_closing_official_task():

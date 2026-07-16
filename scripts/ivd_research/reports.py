@@ -7,7 +7,15 @@ from jinja2 import Template
 
 from .jsonl import append_jsonl, read_json, read_jsonl
 from .constants import WORKFLOW_VERSION
-from .project_profile import formal_scenarios_for
+from .project_profile import (
+    AD_TERMS,
+    RESPIRATORY_TERMS,
+    formal_scenarios_for,
+    has_confirmed_project_profile,
+    is_ad_project as profile_is_ad_project,
+    project_domain as profile_project_domain,
+    project_subject,
+)
 from .query_plan import resolved_literature_profile
 from .quality import (
     OPTIONAL_NOT_STARTED_SCENARIOS,
@@ -1034,7 +1042,7 @@ def build_business_decision(
     ]
     if competitor_materials:
         basis.append(
-            f"已导入 {len(competitor_materials)} 条竞品/同类注册线索，可用于识别同类标志物、化学发光/免疫检测平台、样本类型和注册参照。"
+            f"已导入 {len(competitor_materials)} 条竞品/同类注册线索，可用于识别目标物、平台方法学、样本类型和注册参照。"
         )
     if regulatory_materials:
         basis.append(
@@ -1295,8 +1303,9 @@ def build_expert_decision(
     knowledge_status: dict[str, Any],
     failed_scenarios: list[dict],
     collection_gap_summary: dict[str, Any],
+    confirmations: dict | None = None,
 ) -> dict[str, Any]:
-    is_respiratory = _is_respiratory_project(materials)
+    is_respiratory = _is_respiratory_project(materials, confirmations)
     core_count = screening_summary.get("core", 0)
     metric_count = knowledge_status.get("metric_fact_count", 0)
     gap_count = collection_gap_summary.get("gap_count", 0)
@@ -1309,8 +1318,21 @@ def build_expert_decision(
         validation = "研发验证应优先锁定样本类型、参照试剂、LoD、包容性、交叉反应、干扰、阳性符合率、阴性符合率和多靶标兼容性。"
     else:
         judgement = business_decision.get("conclusion", "")
-        positioning = "优先按辅助诊断、风险分层或转诊分层定位，避免把单一标志物表述为独立确诊工具。"
-        validation = "研发验证应优先锁定样本类型、参照方法、cut-off、AUC、灵敏度、特异性、精密度、干扰和平台一致性。"
+        intended_use = str((confirmations or {}).get("intended_use") or "已确认预期用途")
+        sample_type = str((confirmations or {}).get("sample_type") or "目标样本")
+        platform = str(
+            (confirmations or {}).get("platform")
+            or (confirmations or {}).get("methodology")
+            or "目标平台/方法学"
+        )
+        positioning = (
+            f"优先按已确认预期用途“{intended_use}”定位，并明确目标人群、结果解释和不适用边界；"
+            "自动证据不能把检测结果扩大为未经确认的独立确诊结论。"
+        )
+        validation = (
+            f"研发验证应围绕 {sample_type} 与 {platform}，优先锁定参照方法、检出限/定量限、线性、精密度、"
+            "准确度、分析特异性、干扰、稳定性、临床性能和平台一致性。"
+        )
     confidence = "中"
     if gap_count or failed_scenarios:
         confidence = "中低"
@@ -1425,18 +1447,13 @@ def _sample_titles(materials: list[dict], terms: list[str], limit: int = 4) -> s
     return "；".join(titles) if titles else "暂无直接题名线索"
 
 
-def _project_text(
-    materials: list[dict],
-    confirmations: dict | None = None,
-    topic: str = "",
-    *,
-    limit: int = 200,
-) -> str:
-    confirmation_text = ""
-    if confirmations:
-        confirmation_text = " ".join(str(value or "") for value in confirmations.values())
-    title_text = " ".join(item.get("title", "") for item in materials[:limit])
-    return f"{topic} {confirmation_text} {title_text}".lower()
+def _contains_any(text: str, terms: list[str]) -> bool:
+    lowered = str(text or "").lower()
+    return any(str(term or "").lower() in lowered for term in terms)
+
+
+def _profile_source(confirmations: dict | None = None, topic: str = "") -> dict[str, Any]:
+    return {"topic": topic, "confirmations": confirmations or {}}
 
 
 def _is_respiratory_project(
@@ -1444,22 +1461,14 @@ def _is_respiratory_project(
     confirmations: dict | None = None,
     topic: str = "",
 ) -> bool:
-    text = _project_text(materials, confirmations, topic)
-    return any(
-        term in text
-        for term in [
-            "呼吸道",
-            "甲型流感",
-            "乙型流感",
-            "甲流",
-            "乙流",
-            "influenza",
-            "flu a",
-            "flu b",
-            "respiratory",
-            "multiplex",
-        ]
-    )
+    source = _profile_source(confirmations, topic)
+    if has_confirmed_project_profile(confirmations) or topic:
+        return profile_project_domain(source) == "respiratory"
+
+    # Legacy tasks may not have confirmations. Material titles are only used
+    # when no authoritative project profile exists.
+    material_text = " ".join(item.get("title", "") for item in materials[:200]).lower()
+    return _contains_any(material_text, RESPIRATORY_TERMS)
 
 
 def _is_ad_biomarker_project(
@@ -1467,116 +1476,29 @@ def _is_ad_biomarker_project(
     confirmations: dict | None = None,
     topic: str = "",
 ) -> bool:
-    text = _project_text(materials, confirmations, topic)
-    return any(
-        term in text
-        for term in [
-            "alzheimer",
-            "阿尔茨海默",
-            "认知障碍",
-            "痴呆",
-            "mci",
-            "p-tau",
-            "ptau",
-            "tau217",
-            "tau181",
-            "aβ",
-            "abeta",
-            "amyloid",
-        ]
-    ) or bool(re.search(r"\bad\b", text))
+    source = _profile_source(confirmations, topic)
+    if has_confirmed_project_profile(confirmations) or topic:
+        return profile_is_ad_project(source)
 
-
-def _project_domain(
-    materials: list[dict],
-    confirmations: dict | None = None,
-    topic: str = "",
-) -> str:
-    text = _project_text(materials, confirmations, topic)
-    if _is_respiratory_project(materials, confirmations, topic):
-        return "respiratory"
-    if _is_ad_biomarker_project(materials, confirmations, topic):
-        return "ad_biomarker"
-    if any(
-        term in text
-        for term in [
-            "beta-hcg",
-            "β-hcg",
-            "β hcg",
-            "hcg",
-            "human chorionic gonadotropin",
-            "绒毛膜促性腺激素",
-            "妊娠",
-            "pregnancy",
-        ]
-    ):
-        return "hcg"
-    return "generic_ivd"
+    material_text = " ".join(item.get("title", "") for item in materials[:200]).lower()
+    return _contains_any(material_text, AD_TERMS) or bool(re.search(r"\bad\b", material_text))
 
 
 def _target_marker(materials: list[dict], confirmations: dict | None = None) -> str:
-    profile_text = ""
-    if confirmations:
-        profile_text = " ".join(
-            str(confirmations.get(key, "") or "")
-            for key in [
-                "primary_query",
-                "english_keywords",
-                "chinese_synonyms",
-                "methodology",
-                "platform",
-                "competitor_scope",
-                "patent_scope",
-            ]
-        ).lower()
-    if any(term in profile_text for term in ["甲型流感", "乙型流感", "甲流", "乙流", "influenza a", "influenza b", "flu a", "flu b"]):
-        return "甲型/乙型流感"
-    if any(term in profile_text for term in ["呼吸道", "respiratory", "multiplex"]):
-        return "呼吸道病原体"
-    if any(term in profile_text for term in ["aβ42/40", "abeta42/40", "amyloid beta 42/40", "aβ40", "aβ42"]):
-        return "Aβ42/40"
-    if "p-tau217" in profile_text or "ptau217" in profile_text or "tau217" in profile_text:
-        return "p-Tau217"
-    if "p-tau181" in profile_text or "ptau181" in profile_text or "tau181" in profile_text:
-        return "p-Tau181"
-    if any(
-        term in profile_text
-        for term in [
-            "beta-hcg",
-            "β-hcg",
-            "β hcg",
-            "hcg",
-            "human chorionic gonadotropin",
-            "绒毛膜促性腺激素",
-        ]
-    ):
-        return "beta-hCG"
-    text = " ".join(item.get("title", "") for item in materials[:200]).lower()
-    if any(term in text for term in ["甲型流感", "乙型流感", "甲流", "乙流", "influenza a", "influenza b", "flu a", "flu b"]):
-        return "甲型/乙型流感"
-    if any(term in text for term in ["呼吸道", "respiratory", "multiplex"]):
-        return "呼吸道病原体"
-    if any(term in text for term in ["aβ42/40", "abeta42/40", "amyloid beta 42/40"]):
-        return "Aβ42/40"
-    if "217" in text:
-        return "p-Tau217"
-    if "181" in text:
-        return "p-Tau181"
-    if "aβ" in text or "abeta" in text or "amyloid beta" in text:
-        return "Aβ"
-    if any(
-        term in text
-        for term in [
-            "beta-hcg",
-            "β-hcg",
-            "β hcg",
-            "hcg",
-            "human chorionic gonadotropin",
-            "绒毛膜促性腺激素",
-        ]
-    ):
-        return "beta-hCG"
-    return "目标标志物"
+    if has_confirmed_project_profile(confirmations):
+        return project_subject(_profile_source(confirmations), fallback="目标检测项目")
+    for material in materials:
+        title = str(material.get("title", "") or "").strip()
+        raw = material.get("raw_fields") or {}
+        legacy_text = " ".join(
+            str(value or "")
+            for value in [title, raw.get("abstract", ""), raw.get("keywords", "")]
+        ).strip()
+        if legacy_text:
+            subject = project_subject({"confirmations": {"primary_query": legacy_text}})
+            if subject != "目标检测项目":
+                return subject
+    return "目标检测项目"
 
 
 def build_literature_signal_summary(
@@ -1590,6 +1512,11 @@ def build_literature_signal_summary(
     with_abstract = sum(1 for item in literature_materials if (item.get("raw_fields") or {}).get("abstract"))
     with_structured = sum(1 for item in literature_materials if (item.get("raw_fields") or {}).get("abstract_sections"))
     marker = _target_marker(literature_materials, confirmations)
+    method_terms = []
+    for key in ["platform", "methodology", "english_method_keywords"]:
+        value = (confirmations or {}).get(key, "")
+        values = value if isinstance(value, list) else re.split(r"[；;、，,|\n]+", str(value or ""))
+        method_terms.extend(str(item or "").strip() for item in values if len(str(item or "").strip()) >= 2)
     topics = {
         "blood": _count_topic(literature_materials, ["blood", "plasma", "serum", "血浆", "血清", "血液"]),
         "csf": _count_topic(literature_materials, ["CSF", "cerebrospinal fluid", "脑脊液"]),
@@ -1602,6 +1529,7 @@ def build_literature_signal_summary(
         "csf_reference": _count_topic(literature_materials, ["CSF biomarker", "cerebrospinal fluid biomarker", "脑脊液标志物"]),
         "auc": _count_topic(literature_materials, ["AUC", "area under", "sensitivity", "specificity", "灵敏度", "特异性"]),
         "immunoassay": _count_topic(literature_materials, ["immunoassay", "ELISA", "Simoa", "chemiluminescence", "ECL", "免疫", "化学发光"]),
+        "methodology": _count_topic(literature_materials, method_terms) if method_terms else 0,
     }
     return {
         "marker": marker,
@@ -1618,6 +1546,7 @@ def build_literature_signal_summary(
             "risk": _sample_titles(literature_materials, ["risk", "prediction", "progression"], 4),
             "reference": _sample_titles(literature_materials, ["amyloid PET", "tau PET", "CSF", "pathology"], 4),
             "technology": _sample_titles(literature_materials, ["immunoassay", "ELISA", "Simoa", "chemiluminescence", "ECL"], 4),
+            "methodology": _sample_titles(literature_materials, method_terms, 4) if method_terms else "暂无直接题名线索",
         },
     }
 
@@ -1881,7 +1810,7 @@ def _generic_signal_sentence(signals: dict[str, Any]) -> str:
         f"文献证据共 {signals.get('total', 0)} 条，其中 PubMed {signals.get('pubmed', 0)} 条、PMC/开放全文 {signals.get('pmc', 0)} 条；"
         f"已解析文本 {signals.get('extracted', 0)} 份，含摘要 {signals.get('with_abstract', 0)} 条，含结构化 Abstract {signals.get('with_structured', 0)} 条。"
         f"诊断/鉴别诊断相关 {topics.get('diagnosis', 0)} 条，筛查/分诊相关 {topics.get('screening', 0)} 条，"
-        f"风险预测/进展相关 {topics.get('risk', 0)} 条，免疫检测/平台方法相关 {topics.get('immunoassay', 0)} 条，"
+        f"风险预测/进展相关 {topics.get('risk', 0)} 条，已确认平台/方法学相关 {topics.get('methodology', 0)} 条，"
         f"性能评价相关 {topics.get('auc', 0)} 条。"
     )
 
@@ -1909,18 +1838,13 @@ def build_generic_project_analysis_sections(
     sample_type = str((confirmations or {}).get("sample_type") or "已确认样本类型")
     platform = str((confirmations or {}).get("platform") or (confirmations or {}).get("methodology") or "已确认平台/方法学")
     intended_use = str((confirmations or {}).get("intended_use") or "已确认预期用途")
-    pregnancy_context = (
-        "妊娠相关检测、异位妊娠辅助评估、滋养细胞疾病监测和部分肿瘤相关场景"
-        if _project_domain(materials, confirmations) == "hcg"
-        else intended_use
-    )
     return [
         {
             "id": "analysis-1",
             "title": "临床意义",
             "analysis": (
                 f"{signal_text} 综合题名、摘要和全文线索看，{marker} 的项目价值应围绕目标临床场景、样本类型、检测平台和结果解释边界展开。"
-                f"当前材料更适合用于判断 {pregnancy_context} 中的临床需求和验证重点。"
+                f"当前材料更适合用于判断 {intended_use} 中的临床需求和验证重点。"
             ),
             "evidence": f"{examples['diagnosis']}；{literature_titles}",
             "gap": "需要按目标场景进一步提取灵敏度、特异性、cut-off、线性范围、样本量和参照方法。",
@@ -2039,11 +1963,11 @@ def build_generic_project_analysis_sections(
             "id": "analysis-13",
             "title": "技术可行性",
             "analysis": (
-                f"免疫检测/ELISA/化学发光/层析等平台相关文献 {topics.get('immunoassay', 0)} 条，性能评价相关 {topics.get('auc', 0)} 条。"
-                f"{marker} 的技术可行性应围绕检测限、线性范围、精密度、特异性、交叉反应、干扰、hook 效应和样本稳定性验证。"
+                f"与已确认平台/方法学相关的文献线索 {topics.get('methodology', 0)} 条，性能评价相关 {topics.get('auc', 0)} 条。"
+                f"{marker} 的技术可行性应结合 {platform}，围绕检测限/定量限、线性或报告范围、精密度、准确度、分析特异性、干扰和样本稳定性验证。"
             ),
-            "evidence": "；".join([examples["technology"], competitor_titles]),
-            "gap": "需要研发输出 LoD/LoQ、线性、精密度、hook、交叉反应、干扰和稳定性验证方案。",
+            "evidence": "；".join([examples["methodology"], competitor_titles]),
+            "gap": "需要研发按目标方法学输出检出限/定量限、报告范围、精密度、准确度、分析特异性、干扰和稳定性验证方案。",
         },
         {
             "id": "analysis-14",
@@ -2053,7 +1977,7 @@ def build_generic_project_analysis_sections(
                 "若参考物质和校准体系证据不足，后续可能影响批间一致性、不同平台可比性和判定阈值固化。"
             ),
             "evidence": standard_titles,
-            "gap": "需要确认抗原/抗体、校准品、质控品、溯源体系和批间一致性方案。",
+            "gap": "需要确认适用参考物质、校准品、质控品、溯源体系和批间一致性方案。",
         },
         {
             "id": "analysis-15",
@@ -2069,11 +1993,11 @@ def build_generic_project_analysis_sections(
             "id": "analysis-16",
             "title": "原材料可获得性",
             "analysis": (
-                f"{marker} 方法学转化依赖稳定抗原/抗体、标记体系、校准品、质控材料和低背景检测体系。"
+                f"{marker} 方法学转化依赖稳定的核心识别试剂、反应/标记体系、校准品、质控材料和配套耗材。"
                 "需要同步评估关键原料供应、批间一致性、成本和平台适配风险。"
             ),
             "evidence": patent_titles,
-            "gap": "需要补充关键抗原/抗体、标记物、耗材、校准品和质控品供应风险。",
+            "gap": "需要补充关键识别试剂、反应组分、耗材、校准品和质控品供应风险。",
         },
         {
             "id": "analysis-17",
@@ -2466,7 +2390,7 @@ def build_evidence_gap_rows(
         {
             "gap": "参考物质、校准品和关键原材料证据不足",
             "current_basis": f"已形成 {len(standard_materials)} 条标准/性能控制材料。",
-            "missing_evidence": "抗原/抗体来源、校准品、质控品、溯源体系、批间一致性和供应风险。",
+            "missing_evidence": "核心识别试剂、反应组分、校准品、质控品、溯源体系、批间一致性和供应风险。",
             "impact": "影响研发可行性、成本、供应稳定性和注册资料完整性。",
             "owner": "研发 / 供应链 / 质量",
             "acceptance": "形成关键原材料清单、候选供应商和验证计划。",
@@ -2560,6 +2484,20 @@ SCREENING_MARKER_TERMS = [
     ("p-Tau181", ["p-tau181", "ptau181", "tau181"]),
     ("Aβ42/40", ["aβ42/40", "abeta42/40", "amyloid beta 42/40"]),
 ]
+
+
+def _screening_marker_terms(confirmations: dict | None) -> list[tuple[str, list[str]]]:
+    if not has_confirmed_project_profile(confirmations):
+        return SCREENING_MARKER_TERMS
+    marker = _target_marker([], confirmations)
+    aliases = [marker]
+    synonyms = str((confirmations or {}).get("chinese_synonyms", "") or "")
+    aliases.extend(
+        item.strip()
+        for item in re.split(r"[；;、，,|\n]+", synonyms)
+        if item.strip()
+    )
+    return [(marker, list(dict.fromkeys(aliases)))] if marker else []
 
 SCREENING_METRIC_TERMS = [
     ("灵敏度", ["灵敏度", "sensitivity"]),
@@ -2967,6 +2905,7 @@ def build_screening_cards(
     evidence_cards: list[dict],
     *,
     task_dir: Path | None = None,
+    confirmations: dict | None = None,
 ) -> list[dict[str, Any]]:
     materials_by_id = {item.get("material_id"): item for item in materials}
     translation_cache = load_translation_cache(task_dir) if task_dir else {}
@@ -3005,7 +2944,11 @@ def build_screening_cards(
         row["reference"] = _pick_screening_terms(text, SCREENING_REFERENCE_TERMS, fallback="参照待复核")
         row["use"] = _pick_screening_terms(text, SCREENING_USE_TERMS, fallback="用途待复核")
         row["population"] = _pick_screening_terms(text, SCREENING_POPULATION_TERMS, fallback="人群待复核")
-        row["markers"] = _pick_screening_terms(text, SCREENING_MARKER_TERMS, fallback="目标物待复核")
+        row["markers"] = _pick_screening_terms(
+            text,
+            _screening_marker_terms(confirmations),
+            fallback="目标物待复核",
+        )
         row["metrics"] = _screening_metric_labels(row, text)
         row["region"] = _screening_region(material, text)
         row["evidence_types"] = _screening_evidence_types(material)
@@ -3523,7 +3466,12 @@ def build_standard_report(task_dir: Path, output: Path | None = None) -> dict:
     registration_materials = (
         regulatory_materials + competitor_materials + standard_materials + patent_materials
     )
-    screening_cards = build_screening_cards(materials, evidence_cards, task_dir=task_dir)
+    screening_cards = build_screening_cards(
+        materials,
+        evidence_cards,
+        task_dir=task_dir,
+        confirmations=task.get("confirmations") or {},
+    )
     translation_capability = translation_status(task_dir)
     core_cards = [card for card in screening_cards if card.get("priority_class") == "A"][:60]
     if not core_cards:
@@ -3557,6 +3505,7 @@ def build_standard_report(task_dir: Path, output: Path | None = None) -> dict:
         knowledge_status=knowledge_status,
         failed_scenarios=failed_scenarios,
         collection_gap_summary=collection_gap_summary,
+        confirmations=task.get("confirmations") or {},
     )
 
     template_path = asset_root() / "templates" / "standard-delivery-report.html"

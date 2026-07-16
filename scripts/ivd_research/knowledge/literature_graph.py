@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from ivd_research.jsonl import append_jsonl, read_jsonl, write_json
+from ivd_research.jsonl import append_jsonl, read_json, read_jsonl, write_json
 from ivd_research.models import EvidenceRelation, MetricFact
 from ivd_research.knowledge.dedup import build_dedup_index
 from ivd_research.knowledge.fact_extractor import extract_metric_facts
@@ -86,9 +86,14 @@ def build_literature_knowledge(task_dir: Path) -> dict[str, Any]:
     cards = list(read_jsonl(task_dir / "data" / "evidence_cards.jsonl"))
     knowledge_dir = task_dir / "knowledge"
     knowledge_dir.mkdir(parents=True, exist_ok=True)
+    task = read_json(task_dir / "task.json") if (task_dir / "task.json").exists() else {}
     metric_facts = build_metric_facts(task_dir)
     dedup_index = build_dedup_index(materials)
-    topic_index = build_topic_index(materials, cards)
+    topic_index = build_topic_index(
+        materials,
+        cards,
+        confirmations=task.get("confirmations") or {},
+    )
     relations = build_relations(materials, topic_index, dedup_index)
     write_json(knowledge_dir / "dedup_index.json", {"duplicate_candidates": dedup_index})
     write_json(knowledge_dir / "topic_index.json", {"topics": topic_index})
@@ -123,4 +128,3 @@ def build_literature_knowledge(task_dir: Path) -> dict[str, Any]:
         "relation_count": len(relations),
         "knowledge_dir": str(knowledge_dir),
     }
-

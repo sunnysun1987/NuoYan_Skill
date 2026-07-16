@@ -33,6 +33,14 @@ CORE_QUERY_ROLES = {
     "short_cn",
 }
 
+NO_RESULT_COMPARABLE_SOURCES = {
+    "yiigle_fulltext": {
+        "yiigle_zhjyyxzz",
+        "cma_lab_management",
+        "yiigle_zhsjkzz",
+    },
+}
+
 LONG_QUERY_CHAR_THRESHOLD = 140
 LONG_QUERY_TOKEN_THRESHOLD = 16
 
@@ -161,6 +169,36 @@ def build_source_quality_audit(
                     ),
                 )
             )
+
+    for scenario_id, comparable_sources in NO_RESULT_COMPARABLE_SOURCES.items():
+        scenario = statuses.get(scenario_id)
+        if not scenario or scenario.get("status") != "no_results":
+            continue
+        comparable_count = _material_count_for_sources(materials, comparable_sources)
+        if not comparable_count:
+            continue
+        attempts = attempts_by_scenario.get(scenario_id, [])
+        core_attempts = [
+            attempt
+            for attempt in attempts
+            if str(attempt.get("query_role") or "") in CORE_QUERY_ROLES
+        ]
+        issues.append(
+            _issue(
+                scenario,
+                severity="medium" if core_attempts else "high",
+                issue_type="cross_source_channel_mismatch",
+                finding="该聚合来源为 no_results，但同体系的专门中文期刊来源已采集到相关材料。",
+                evidence=(
+                    f"可比中文来源已有 {comparable_count} 条材料；"
+                    + (_attempt_summary(attempts) if attempts else str(scenario.get("last_message") or ""))
+                ),
+                recommendation=(
+                    "复核聚合搜索页的结果链接结构、筛选条件和详情页解析规则；"
+                    "在适配器闭环前保留该来源缺口，不能用专门期刊材料自动关闭。"
+                ),
+            )
+        )
 
     high_count = sum(1 for item in issues if item.get("severity") == "high")
     medium_count = sum(1 for item in issues if item.get("severity") == "medium")

@@ -39,6 +39,7 @@ RESEARCH_STOP_WORDS = [
 ]
 
 DEFAULT_LITERATURE_TYPES = ["指南", "综述", "Meta分析", "原创论文", "病例报告"]
+MAX_PRODUCT_QUERY_CHARS = 140
 
 LITERATURE_PROFILES = {
     "quick_scan": {
@@ -238,28 +239,20 @@ def _strip_source_noise(text: str) -> str:
     return " ".join(clean.split())
 
 
-def _hcg_core_queries(text: str) -> list[str]:
-    lowered = text.lower()
-    if not any(
-        signal in lowered
-        for signal in [
-            "hcg",
-            "β-hcg",
-            "beta-hcg",
-            "beta hcg",
-            "chorionic gonadotropin",
-        ]
-    ) and "绒毛膜促性腺激素" not in text:
-        return []
-    return ["人绒毛膜促性腺激素", "β-hCG", "hCG"]
+def _alias_queries(value: Any) -> list[str]:
+    aliases: list[str] = []
+    if isinstance(value, list):
+        raw_values = [str(item or "") for item in value]
+    else:
+        raw_values = re.split(r"[；;、，,|\n]+", str(value or ""))
+    for raw in raw_values:
+        clean = _strip_source_noise(raw)
+        if clean and len(clean) <= 80:
+            aliases.append(clean)
+    return _dedupe(aliases)
 
 
 def _core_chinese_queries(state: Any, *, max_candidates: int = 4) -> list[str]:
-    text = _profile_text(state)
-    hcg_queries = _hcg_core_queries(text)
-    if hcg_queries:
-        return hcg_queries[:max_candidates]
-
     cleaned = _strip_source_noise(_broad_query(state) or _primary_query(state))
     parts = re.findall(r"[一-鿿A-Za-z0-9α-ωΑ-ΩβΒτΤ\-]+", cleaned)
     core: list[str] = []
@@ -277,8 +270,9 @@ def _core_chinese_queries(state: Any, *, max_candidates: int = 4) -> list[str]:
         core.append(token)
         if len(core) >= 3:
             break
-    candidates: list[str] = []
+    candidates = _alias_queries(_confirmation(state, "chinese_synonyms", ""))
     if core:
+        candidates.append(core[0])
         candidates.append(" ".join(core[:2]))
         candidates.append(" ".join(core[:3]))
     short = _short_query(cleaned, max_terms=2)
@@ -291,10 +285,6 @@ def _core_chinese_queries(state: Any, *, max_candidates: int = 4) -> list[str]:
 
 
 def _openalex_core_query(state: Any) -> str:
-    text = _profile_text(state)
-    if _hcg_core_queries(text):
-        return "human chorionic gonadotropin beta hCG immunoassay"
-
     query = _openalex_query(state)
     tokens: list[str] = []
     for token in re.findall(r"[A-Za-z0-9α-ωΑ-ΩβΒτΤ\-]+", query):
@@ -304,7 +294,7 @@ def _openalex_core_query(state: Any) -> str:
             continue
         if lower not in {item.lower() for item in tokens}:
             tokens.append(normalized)
-        if len(" ".join(tokens)) >= 140 or len(tokens) >= 12:
+        if len(" ".join(tokens)) >= 100 or len(tokens) >= 6:
             break
     return " ".join(tokens) or _english_primary_query(state)
 
@@ -439,11 +429,7 @@ def _method_expansion_retmax(literature_profile: dict[str, Any]) -> int | str:
 def _english_method_expansion_queries(state: Any, *, max_candidates: int = 3) -> list[str]:
     signal = _method_signal_text(state).lower()
     explicit = str(_confirmation(state, "english_method_keywords", "") or "").strip()
-    target = (
-        "human chorionic gonadotropin beta hCG"
-        if _hcg_core_queries(_profile_text(state))
-        else _openalex_core_query(state)
-    )
+    target = _openalex_core_query(state)
     candidates: list[str] = []
     if explicit:
         candidates.append(_append_terms(target, explicit))
@@ -700,11 +686,78 @@ def _openalex_plans(state: Any, literature_profile: dict[str, Any], literature_d
     return plans
 
 
+def _product_source_plans(
+    state: Any,
+    *,
+    source: str,
+    patent_scope: str = "",
+) -> list[ScenarioQueryPlan]:
+    core_queries = _core_chinese_queries(state)
+    primary = _primary_query(state)
+    plans: list[ScenarioQueryPlan] = []
+    common_params: dict[str, Any] = {}
+    if source == "nmpa":
+        common_params["registration_types"] = [
+            "境内医疗器械（注册）",
+            "进口医疗器械（注册）",
+        ]
+    elif source == "patent":
+        common_params["patent_scope"] = patent_scope or "全球"
+
+    for query in core_queries[:3]:
+        plans.append(
+            ScenarioQueryPlan(
+                query=query,
+                params={"query_role": "core_cn", **common_params},
+            )
+        )
+    for query in core_queries[:2]:
+        plans.append(
+            ScenarioQueryPlan(
+                query=_append_terms(query, "测定试剂盒"),
+                params={"query_role": "core_product_cn", **common_params},
+            )
+        )
+
+    method_value = str(
+        _confirmation(state, "platform", "")
+        or _confirmation(state, "methodology", "")
+        or ""
+    )
+    method_hint = next(
+        (
+            item.strip()
+            for item in re.split(r"[；;、，,|。\n]+", method_value)
+            if 1 < len(item.strip()) <= 24
+        ),
+        "",
+    )
+    if core_queries and method_hint:
+        plans.append(
+            ScenarioQueryPlan(
+                query=_append_terms(core_queries[0], method_hint),
+                params={"query_role": "method_hint_cn", **common_params},
+            )
+        )
+    if primary and len(primary) <= MAX_PRODUCT_QUERY_CHARS:
+        plans.append(
+            ScenarioQueryPlan(
+                query=primary,
+                params={"query_role": "primary_cn", **common_params},
+            )
+        )
+
+    deduped: list[ScenarioQueryPlan] = []
+    seen: set[str] = set()
+    for plan in plans:
+        if plan.query and plan.query not in seen:
+            deduped.append(plan)
+            seen.add(plan.query)
+    return deduped
+
+
 def scenario_query_plans(state: Any) -> dict[str, list[ScenarioQueryPlan]]:
     broad = _cn_business_query(state)
-    primary = _primary_query(state)
-    short = _short_query(broad, max_terms=3)
-    methodology = str(_confirmation(state, "methodology", "") or "").strip()
     patent_scope = str(_confirmation(state, "patent_scope", "全球") or "全球").strip()
     literature_date_range = _literature_date_range(state) or _confirmation(state, "literature_years", 5)
     literature_profile = _literature_profile(state)
@@ -713,11 +766,6 @@ def scenario_query_plans(state: Any) -> dict[str, list[ScenarioQueryPlan]]:
         date_range=literature_date_range,
     )
 
-    common_broad = [ScenarioQueryPlan(query=broad, params={"query_role": "broad_cn"})]
-    if short and short != broad:
-        common_broad.append(ScenarioQueryPlan(query=short, params={"query_role": "short_cn"}))
-    if primary and primary not in {broad, short}:
-        common_broad.append(ScenarioQueryPlan(query=primary, params={"query_role": "primary_cn"}))
     source_safe_cn = _source_safe_cn_plans(state)
     standard_safe_cn = _source_safe_cn_plans(state, include_product_hint=True)
     fulltext_short_expression = build_yiigle_fulltext_expression(
@@ -727,25 +775,12 @@ def scenario_query_plans(state: Any) -> dict[str, list[ScenarioQueryPlan]]:
     plans = {
         "cmde_regulatory": source_safe_cn,
         "standards_current": standard_safe_cn,
-        "nmpa_competitor": [
-            ScenarioQueryPlan(
-                query=broad,
-                params={
-                    "query_role": "broad_cn",
-                    "methodology": methodology,
-                    "registration_types": [
-                        "境内医疗器械（注册）",
-                        "进口医疗器械（注册）",
-                    ],
-                },
-            )
-        ],
-        "patenthub_patents": [
-            ScenarioQueryPlan(
-                query=broad,
-                params={"query_role": "patent_cn", "patent_scope": patent_scope or "全球"},
-            )
-        ],
+        "nmpa_competitor": _product_source_plans(state, source="nmpa"),
+        "patenthub_patents": _product_source_plans(
+            state,
+            source="patent",
+            patent_scope=patent_scope,
+        ),
         "yiigle_zhjyyxzz": _journal_plans(state),
         "cma_lab_management": _journal_plans(state),
         "pubmed_literature": _english_literature_plans(

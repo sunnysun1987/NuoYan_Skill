@@ -149,3 +149,57 @@ def test_query_attempts_reads_delivery_browser_events(tmp_path: Path):
 
     assert attempts["cmde_regulatory"][0]["query_role"] == "core_cn"
     assert attempts["cmde_regulatory"][0]["query"] == "人绒毛膜促性腺激素"
+
+
+def test_source_quality_flags_chinese_fulltext_cross_source_mismatch(tmp_path: Path):
+    task_dir = _task_with_hcg_profile(tmp_path)
+    task = json.loads((task_dir / "task.json").read_text(encoding="utf-8"))
+    task["scenario_statuses"]["openalex_literature"]["status"] = "completed"
+    task["scenario_statuses"]["yiigle_fulltext"].update(
+        {"status": "no_results", "material_count": 0, "last_message": "聚合全文检索未命中。"}
+    )
+    task["scenario_statuses"]["yiigle_zhjyyxzz"].update(
+        {"status": "completed", "material_count": 1, "last_message": "专门期刊检索完成。"}
+    )
+    write_json(task_dir / "task.json", task)
+    append_jsonl(
+        task_dir / "data" / "materials.jsonl",
+        Material(
+            material_id="MAT-CN-001",
+            task_id="TEST",
+            source_scenario="yiigle_zhjyyxzz",
+            material_type="literature",
+            title="人绒毛膜促性腺激素检测研究",
+            source_url="https://example.org/cn/1",
+            search_keyword_or_query="人绒毛膜促性腺激素",
+            collection_path={"scenario_id": "yiigle_zhjyyxzz"},
+            collection_time="2026-07-09T00:00:00+08:00",
+            adapter_id="yiigle_zhjyyxzz",
+            adapter_version="2.0.0",
+        ).model_dump(mode="json"),
+    )
+    append_jsonl(
+        task_dir / "logs" / "events.jsonl",
+        {
+            "event": "scenario_query_attempts",
+            "scenario_id": "yiigle_fulltext",
+            "attempts": [
+                {
+                    "query_role": "yiigle_fulltext_core_expression",
+                    "query": "篇关摘=(人绒毛膜促性腺激素)",
+                    "status": "no_results",
+                },
+                {
+                    "query_role": "yiigle_fulltext_expression",
+                    "query": "篇关摘=(人绒毛膜促性腺激素 检测试剂盒)",
+                    "status": "no_results",
+                },
+            ],
+        },
+    )
+
+    audit = build_source_quality_audit(task_dir)
+
+    issue_types = {issue["issue_type"] for issue in audit["issues"]}
+    assert "cross_source_channel_mismatch" in issue_types
+    assert audit["medium_count"] >= 1

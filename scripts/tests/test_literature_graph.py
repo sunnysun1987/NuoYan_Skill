@@ -2,6 +2,7 @@ from pathlib import Path
 
 from ivd_research.jsonl import append_jsonl
 from ivd_research.knowledge.literature_graph import build_literature_knowledge
+from ivd_research.knowledge.topic_index import build_topic_index
 
 
 def test_literature_knowledge_outputs_metric_topic_and_graph(tmp_path: Path):
@@ -37,3 +38,21 @@ def test_literature_knowledge_outputs_metric_topic_and_graph(tmp_path: Path):
     assert (tmp_path / "knowledge" / "topic_index.json").exists()
     assert (tmp_path / "knowledge" / "literature_graph.json").exists()
 
+
+def test_topic_index_uses_confirmed_marker_aliases_for_new_projects():
+    topics = build_topic_index(
+        [
+            {
+                "material_id": "MAT-PCT",
+                "title": "Serum procalcitonin for sepsis risk assessment",
+                "raw_fields": {"abstract": "Procalcitonin was measured in serum."},
+            }
+        ],
+        [],
+        confirmations={
+            "primary_query": "降钙素原 PCT 定量检测试剂盒",
+            "chinese_synonyms": "降钙素原；procalcitonin；PCT",
+        },
+    )
+
+    assert topics["marker"]["procalcitonin"] == ["MAT-PCT"]

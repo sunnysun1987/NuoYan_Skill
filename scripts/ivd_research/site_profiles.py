@@ -142,12 +142,12 @@ SITE_PROFILES: dict[str, dict[str, Any]] = {
     },
     "yiigle_fulltext": {
         "scenario_id": "yiigle_fulltext",
-        "entry_url": "https://www.yiigle.com/searchMobile?ind=3",
-        "collection_modes": ["playwright_persistent", "codex_chrome", "http", "manual_upload"],
+        "entry_url": "https://www.yiigle.com/Paper/Search",
+        "collection_modes": ["public_api", "playwright_persistent", "codex_chrome", "manual_upload"],
         "observed_access": {
-            "status": "collection_failed",
-            "observed_on": "2026-06-08",
-            "evidence_zh": "Browser 中标题可见但 DOM 为空；后续需通过具体期刊站或用户合法上传材料补充。",
+            "status": "completed",
+            "observed_on": "2026-07-16",
+            "evidence_zh": "官方公开 /apiVue/search/searchList 接口可返回检索总数、题录、摘要、DOI、期刊、作者和详情链接；searchMobile 页面本身只是 loading shell。",
         },
         "chrome_workflow": {
             "purpose_zh": "用于观察中华医学期刊全文数据库的检索字段、登录态和全文权限。",

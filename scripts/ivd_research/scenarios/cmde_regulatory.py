@@ -43,16 +43,6 @@ VALIDATION_RULES = [
     "collection_failed",
     "no_results",
 ]
-ANALOG_TERMS = (
-    "肺炎",
-    "支原体",
-    "核酸检测试剂",
-    "抗原检测试剂",
-    "抗体检测试剂",
-    "检测试剂",
-    "病原体",
-    "呼吸道",
-)
 CMDE_RESULT_PREFIXES = ("【审评报告】", "【指导原则文本库】", "【征求意见】")
 WORD_NS = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
 

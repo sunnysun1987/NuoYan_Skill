@@ -62,7 +62,8 @@ def test_hcg_query_plan_does_not_enable_alzheimer_specific_source():
     plans = scenario_query_plans(
         _state(
             primary_query="beta-hCG定量检测试剂盒（荧光免疫层析法）",
-            english_keywords="beta hCG quantitative test kit fluorescence immunochromatography",
+            english_keywords="human chorionic gonadotropin beta hCG immunoassay pregnancy testing",
+            chinese_synonyms="人绒毛膜促性腺激素；β-hCG；hCG",
             sample_type="serum OR urine",
             platform="fluorescence immunochromatography",
             methodology="immunochromatographic assay",
@@ -96,6 +97,47 @@ def test_hcg_query_plan_does_not_enable_alzheimer_specific_source():
     )
     assert "Alzheimer" not in query_text
     assert "AD " not in query_text
+
+
+def test_generic_aliases_build_source_safe_query_ladder_without_project_rule():
+    plans = scenario_query_plans(
+        _state(
+            primary_query="降钙素原 PCT 定量检测试剂盒（化学发光法）",
+            english_keywords="procalcitonin PCT immunoassay sepsis quantitative test kit serum",
+            chinese_synonyms="降钙素原；PCT",
+            sample_type="血清/血浆",
+            platform="化学发光",
+            methodology="免疫分析",
+            intended_use="细菌感染和脓毒症风险辅助评估",
+        )
+    )
+
+    assert plans["standards_current"][0].query == "降钙素原"
+    assert plans["openalex_literature"][0].query == "procalcitonin PCT immunoassay sepsis"
+    assert "wiley_alz" not in plans
+    assert "yiigle_zhsjkzz" not in plans
+
+
+def test_product_sources_use_layered_queries_instead_of_full_profile_blob():
+    plans = scenario_query_plans(
+        _state(
+            primary_query="降钙素原 PCT 定量检测试剂盒（化学发光法）",
+            english_keywords="procalcitonin PCT immunoassay sepsis",
+            chinese_synonyms="降钙素原；PCT",
+            sample_type="血清、血浆、全血；分别验证稳定性和基质效应",
+            platform="化学发光、免疫荧光、POCT",
+            methodology="免疫分析为主，覆盖夹心法和竞争法",
+            intended_use="细菌感染和脓毒症风险辅助评估",
+        )
+    )
+
+    for scenario_id in ["nmpa_competitor", "patenthub_patents"]:
+        source_plans = plans[scenario_id]
+        assert len(source_plans) >= 4
+        assert any(plan.params["query_role"] == "core_cn" for plan in source_plans)
+        assert any(plan.params["query_role"] == "core_product_cn" for plan in source_plans)
+        assert max(len(plan.query) for plan in source_plans) <= 140
+        assert all("分别验证稳定性" not in plan.query for plan in source_plans)
 
 
 def test_ad_query_plan_keeps_alzheimer_specific_source():
