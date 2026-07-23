@@ -17,6 +17,7 @@ outputs/
 .nuoyan-test-runs/
 .nuoyan-source-audit/
 .nuoyan-v21-smoke/
+.nuoyan-live-audit/
 packages/
 *.zip
 *.log

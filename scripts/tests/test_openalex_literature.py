@@ -48,6 +48,31 @@ def test_openalex_abstract_reconstruction():
     )
 
 
+def test_openalex_native_id_is_used_when_doi_and_pmid_are_unavailable(tmp_path: Path):
+    task_dir = tmp_path / "task"
+    create_task_directories(task_dir)
+    material = Material(
+        material_id="MAT-000001",
+        task_id="TEST",
+        source_scenario="openalex_literature",
+        material_type="literature",
+        title="OpenAlex-only record",
+        collection_time="2026-07-23T00:00:00+08:00",
+        raw_fields={
+            "openalex_id": "https://openalex.org/W1234567890",
+            "abstract": "A public OpenAlex record without DOI or PMID.",
+        },
+    )
+
+    card = build_draft_evidence_card(
+        task_dir,
+        material.model_dump(mode="json"),
+        "EC-000001",
+    )
+
+    assert card.identifier == "https://openalex.org/W1234567890"
+
+
 def test_openalex_material_flows_to_evidence_card_and_review(tmp_path: Path):
     task_dir = tmp_path / "task"
     create_task_directories(task_dir)

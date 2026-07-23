@@ -3,7 +3,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from .jsonl import append_jsonl, read_json, read_jsonl
+from .jsonl import read_json, read_jsonl, write_jsonl
 from .models import EvidenceCard
 from .translation import parameter_lines
 from .knowledge.fact_extractor import extract_metric_facts
@@ -79,6 +79,7 @@ def _identifier(material: dict[str, Any]) -> str:
         "pmid",
         "pmcid",
         "doi",
+        "openalex_id",
         "registration_certificate_number",
         "standard_no",
         "standard_number",
@@ -355,11 +356,17 @@ def generate_draft_evidence_cards(task_dir: Path) -> dict:
         generated.append(str(path.relative_to(task_dir)))
         existing_material_ids.add(material.get("material_id"))
 
-    commit = commit_staged_evidence(task_dir)
+    commit = commit_staged_evidence(
+        task_dir,
+        staged_names={Path(path).name for path in generated},
+    )
     return {
         "generated_count": len(generated),
         "generated": generated,
         "committed_count": commit["committed_count"],
+        "added_count": commit["added_count"],
+        "replaced_count": commit["replaced_count"],
+        "deduplicated_count": commit["deduplicated_count"],
         "validation": commit["validation"],
     }
 
@@ -377,37 +384,81 @@ def has_fact_source_support(card: EvidenceCard) -> bool:
     return supported_by_excerpt or supported_by_source_fields
 
 
-def validate_staged_evidence(task_dir: Path) -> dict:
+def validate_staged_evidence(
+    task_dir: Path,
+    *,
+    staged_names: set[str] | None = None,
+) -> dict:
     errors = []
     valid = []
     known_material_ids = material_ids(task_dir)
-    for path in sorted((task_dir / "staging" / "evidence_cards").glob("*.json")):
+    existing_material_ids_by_card_id: dict[str, set[str]] = {}
+    for row in read_jsonl(task_dir / "data" / "evidence_cards.jsonl"):
+        card_id = str(row.get("evidence_card_id") or "")
+        if not card_id:
+            continue
+        existing_material_ids_by_card_id.setdefault(card_id, set()).add(
+            str(row.get("material_id") or "")
+        )
+    for card_id, linked_material_ids in existing_material_ids_by_card_id.items():
+        if len(linked_material_ids) > 1:
+            errors.append(
+                {
+                    "file": "data/evidence_cards.jsonl",
+                    "error": (
+                        f"Evidence card {card_id} is linked to different material_ids: "
+                        f"{', '.join(sorted(linked_material_ids))}."
+                    ),
+                }
+            )
+    existing_material_by_card_id = {
+        card_id: next(iter(linked_material_ids))
+        for card_id, linked_material_ids in existing_material_ids_by_card_id.items()
+        if len(linked_material_ids) == 1
+    }
+    staged_card_files: dict[str, str] = {}
+    paths = sorted((task_dir / "staging" / "evidence_cards").glob("*.json"))
+    if staged_names is not None:
+        paths = [path for path in paths if path.name in staged_names]
+    for path in paths:
         try:
             card = EvidenceCard.model_validate(read_json(path))
+            card_errors = []
+            if path.stem != card.evidence_card_id:
+                card_errors.append(
+                    f"Filename {path.name} must match evidence_card_id {card.evidence_card_id}.json"
+                )
+            previous_file = staged_card_files.get(card.evidence_card_id)
+            if previous_file:
+                card_errors.append(
+                    f"Duplicate staged evidence_card_id {card.evidence_card_id}: "
+                    f"{previous_file}, {path.name}"
+                )
+            else:
+                staged_card_files[card.evidence_card_id] = path.name
             if card.material_id not in known_material_ids:
-                errors.append(
-                    {
-                        "file": path.name,
-                        "error": f"Unknown material_id: {card.material_id}",
-                    }
+                card_errors.append(f"Unknown material_id: {card.material_id}")
+            existing_material_id = existing_material_by_card_id.get(card.evidence_card_id)
+            if existing_material_id and existing_material_id != card.material_id:
+                card_errors.append(
+                    f"Evidence card {card.evidence_card_id} cannot replace material_id "
+                    f"{existing_material_id} with {card.material_id}."
                 )
-            elif card.include_in_report and not card.key_excerpts:
-                errors.append(
-                    {
-                        "file": path.name,
-                        "error": "纳入报告的证据卡必须包含关键摘录。",
-                    }
-                )
-            elif (
+            if card.include_in_report and not card.key_excerpts:
+                card_errors.append("纳入报告的证据卡必须包含关键摘录。")
+            if (
                 card.include_in_report
                 and (card.facts or card.key_facts)
                 and not has_fact_source_support(card)
             ):
-                errors.append(
-                    {
-                        "file": path.name,
-                        "error": "Included facts require source support from key_excerpts or exact_data/source_location/original_excerpt_or_table_marker.",
-                    }
+                card_errors.append(
+                    "Included facts require source support from key_excerpts or "
+                    "exact_data/source_location/original_excerpt_or_table_marker."
+                )
+            if card_errors:
+                errors.extend(
+                    {"file": path.name, "error": message}
+                    for message in card_errors
                 )
             else:
                 valid.append(path.name)
@@ -416,26 +467,71 @@ def validate_staged_evidence(task_dir: Path) -> dict:
     return {"ok": not errors, "valid": valid, "errors": errors}
 
 
-def commit_staged_evidence(task_dir: Path) -> dict:
-    validation = validate_staged_evidence(task_dir)
+def commit_staged_evidence(
+    task_dir: Path,
+    *,
+    staged_names: set[str] | None = None,
+) -> dict:
+    validation = validate_staged_evidence(task_dir, staged_names=staged_names)
     if not validation["ok"]:
-        return {"committed_count": 0, "validation": validation}
+        return {
+            "committed_count": 0,
+            "added_count": 0,
+            "replaced_count": 0,
+            "deduplicated_count": 0,
+            "validation": validation,
+        }
 
-    count = 0
-    existing_ids = committed_evidence_ids(task_dir)
+    evidence_path = task_dir / "data" / "evidence_cards.jsonl"
+    rows: list[dict[str, Any]] = []
+    row_indexes: dict[str, int] = {}
+    deduplicated_cards: dict[str, dict[str, Any]] = {}
+    deduplicated_count = 0
+    for row in read_jsonl(evidence_path):
+        card_id = str(row.get("evidence_card_id") or "")
+        if card_id and card_id in row_indexes:
+            rows[row_indexes[card_id]] = row
+            deduplicated_cards[card_id] = row
+            deduplicated_count += 1
+            continue
+        if card_id:
+            row_indexes[card_id] = len(rows)
+        rows.append(row)
+    committed_cards: list[dict[str, Any]] = []
+    added_count = 0
+    replaced_count = 0
     for name in validation["valid"]:
         path = task_dir / "staging" / "evidence_cards" / name
         card = EvidenceCard.model_validate(read_json(path))
-        if card.evidence_card_id in existing_ids:
-            continue
-        append_jsonl(
-            task_dir / "data" / "evidence_cards.jsonl",
-            card.model_dump(mode="json"),
+        payload = card.model_dump(mode="json")
+        if card.evidence_card_id in row_indexes:
+            rows[row_indexes[card.evidence_card_id]] = payload
+            replaced_count += 1
+        else:
+            row_indexes[card.evidence_card_id] = len(rows)
+            rows.append(payload)
+            added_count += 1
+        committed_cards.append(payload)
+
+    if committed_cards or deduplicated_count:
+        write_jsonl(evidence_path, rows)
+        export_cards = dict(deduplicated_cards)
+        export_cards.update(
+            {
+                str(card.get("evidence_card_id") or ""): card
+                for card in committed_cards
+            }
         )
-        export_evidence_card_files(task_dir, card.model_dump(mode="json"))
-        existing_ids.add(card.evidence_card_id)
-        count += 1
-    return {"committed_count": count, "validation": validation}
+        for card in export_cards.values():
+            export_evidence_card_files(task_dir, card)
+
+    return {
+        "committed_count": len(committed_cards),
+        "added_count": added_count,
+        "replaced_count": replaced_count,
+        "deduplicated_count": deduplicated_count,
+        "validation": validation,
+    }
 
 
 def export_evidence_card_files(task_dir: Path, card: dict[str, Any]) -> None:

@@ -1,6 +1,11 @@
 from pathlib import Path
 
-from ivd_research.evidence import build_draft_evidence_card
+from ivd_research.evidence import (
+    build_draft_evidence_card,
+    commit_staged_evidence,
+    export_evidence_card_files,
+    generate_draft_evidence_cards,
+)
 from ivd_research.review_excel import export_review
 from ivd_research.scenarios.pubmed_pmc import (
     EFETCH_BATCH_SIZE,
@@ -13,7 +18,7 @@ from ivd_research.scenarios.pubmed_pmc import (
     parse_pubmed_articles,
 )
 from ivd_research.status import create_task_directories
-from ivd_research.jsonl import append_jsonl
+from ivd_research.jsonl import append_jsonl, read_json, read_jsonl
 from ivd_research.jsonl import write_json
 from ivd_research.models import Material
 
@@ -177,6 +182,239 @@ def test_evidence_card_markdown_contains_translation_and_parameters(tmp_path: Pa
     assert "## 中文阅读版" not in markdown
     assert "## 参数要点" in markdown
     assert "AUC" in markdown
+
+
+def test_commit_staged_evidence_replaces_existing_card_with_same_id(tmp_path: Path):
+    task_dir = tmp_path / "task"
+    create_task_directories(task_dir)
+    material = Material(
+        material_id="MAT-000001",
+        task_id="TASK-1",
+        source_scenario="pubmed_literature",
+        material_type="literature",
+        title="Original title",
+        collection_time="2026-07-23T00:00:00+08:00",
+        raw_fields={"abstract": "Sensitivity was 88% in the validation cohort."},
+    )
+    append_jsonl(task_dir / "data" / "materials.jsonl", material.model_dump(mode="json"))
+    original = build_draft_evidence_card(task_dir, material.model_dump(mode="json"), "EC-000001")
+    append_jsonl(task_dir / "data" / "evidence_cards.jsonl", original.model_dump(mode="json"))
+
+    reviewed = original.model_copy(
+        update={
+            "summary": "Agent-reviewed evidence summary.",
+            "evidence_conclusion": "The study reports diagnostic sensitivity in a validation cohort.",
+            "confidence_level": "中",
+        }
+    )
+    write_json(
+        task_dir / "staging" / "evidence_cards" / "EC-000001.json",
+        reviewed.model_dump(mode="json"),
+    )
+
+    result = commit_staged_evidence(task_dir)
+    rows = list(read_jsonl(task_dir / "data" / "evidence_cards.jsonl"))
+    exported = read_json(task_dir / "evidence_cards" / "json" / "EC-000001.json")
+
+    assert result["committed_count"] == 1
+    assert result["replaced_count"] == 1
+    assert len(rows) == 1
+    assert rows[0]["summary"] == "Agent-reviewed evidence summary."
+    assert exported["summary"] == "Agent-reviewed evidence summary."
+
+
+def test_commit_staged_evidence_deduplicates_ids_and_preserves_unrelated_cards(tmp_path: Path):
+    task_dir = tmp_path / "task"
+    create_task_directories(task_dir)
+    first_material = Material(
+        material_id="MAT-000001",
+        task_id="TASK-1",
+        source_scenario="pubmed_literature",
+        material_type="literature",
+        title="First material",
+        collection_time="2026-07-23T00:00:00+08:00",
+        raw_fields={"abstract": "Sensitivity was 88%."},
+    )
+    second_material = first_material.model_copy(
+        update={"material_id": "MAT-000002", "title": "Second material"}
+    )
+    for material in [first_material, second_material]:
+        append_jsonl(task_dir / "data" / "materials.jsonl", material.model_dump(mode="json"))
+
+    first = build_draft_evidence_card(task_dir, first_material.model_dump(mode="json"), "EC-000001")
+    unrelated = build_draft_evidence_card(task_dir, second_material.model_dump(mode="json"), "EC-000002")
+    append_jsonl(task_dir / "data" / "evidence_cards.jsonl", first.model_dump(mode="json"))
+    append_jsonl(task_dir / "data" / "evidence_cards.jsonl", unrelated.model_dump(mode="json"))
+    append_jsonl(
+        task_dir / "data" / "evidence_cards.jsonl",
+        first.model_copy(update={"summary": "Stale duplicate."}).model_dump(mode="json"),
+    )
+    write_json(
+        task_dir / "staging" / "evidence_cards" / "EC-000001.json",
+        first.model_copy(update={"summary": "Reviewed replacement."}).model_dump(mode="json"),
+    )
+
+    result = commit_staged_evidence(task_dir)
+    rows = list(read_jsonl(task_dir / "data" / "evidence_cards.jsonl"))
+
+    assert result["deduplicated_count"] == 1
+    assert [row["evidence_card_id"] for row in rows] == ["EC-000001", "EC-000002"]
+    assert rows[0]["summary"] == "Reviewed replacement."
+    assert rows[1]["summary"] == unrelated.summary
+
+
+def test_generate_evidence_cards_commits_only_cards_created_in_current_run(tmp_path: Path):
+    task_dir = tmp_path / "task"
+    create_task_directories(task_dir)
+    first_material = Material(
+        material_id="MAT-000001",
+        task_id="TASK-1",
+        source_scenario="pubmed_literature",
+        material_type="literature",
+        title="First material",
+        collection_time="2026-07-23T00:00:00+08:00",
+        raw_fields={"abstract": "Sensitivity was 88%."},
+    )
+    append_jsonl(task_dir / "data" / "materials.jsonl", first_material.model_dump(mode="json"))
+    first_result = generate_draft_evidence_cards(task_dir)
+    second_material = first_material.model_copy(
+        update={"material_id": "MAT-000002", "title": "Second material"}
+    )
+    append_jsonl(task_dir / "data" / "materials.jsonl", second_material.model_dump(mode="json"))
+
+    second_result = generate_draft_evidence_cards(task_dir)
+
+    assert first_result["generated_count"] == 1
+    assert first_result["committed_count"] == 1
+    assert second_result["generated_count"] == 1
+    assert second_result["committed_count"] == 1
+    assert second_result["added_count"] == 1
+    assert second_result["replaced_count"] == 0
+
+
+def test_commit_staged_evidence_rejects_cross_material_id_replacement(tmp_path: Path):
+    task_dir = tmp_path / "task"
+    create_task_directories(task_dir)
+    first_material = Material(
+        material_id="MAT-000001",
+        task_id="TASK-1",
+        source_scenario="pubmed_literature",
+        material_type="literature",
+        title="First material",
+        collection_time="2026-07-23T00:00:00+08:00",
+        raw_fields={"abstract": "Sensitivity was 88%."},
+    )
+    second_material = first_material.model_copy(
+        update={"material_id": "MAT-000002", "title": "Second material"}
+    )
+    for material in [first_material, second_material]:
+        append_jsonl(task_dir / "data" / "materials.jsonl", material.model_dump(mode="json"))
+    original = build_draft_evidence_card(task_dir, first_material.model_dump(mode="json"), "EC-000001")
+    append_jsonl(task_dir / "data" / "evidence_cards.jsonl", original.model_dump(mode="json"))
+    write_json(
+        task_dir / "staging" / "evidence_cards" / "EC-000001.json",
+        original.model_copy(update={"material_id": "MAT-000002"}).model_dump(mode="json"),
+    )
+
+    result = commit_staged_evidence(task_dir)
+    rows = list(read_jsonl(task_dir / "data" / "evidence_cards.jsonl"))
+
+    assert result["committed_count"] == 0
+    assert result["validation"]["ok"] is False
+    assert "cannot replace material_id" in result["validation"]["errors"][0]["error"]
+    assert rows[0]["material_id"] == "MAT-000001"
+
+
+def test_validate_staged_evidence_rejects_filename_mismatch_and_duplicate_ids(tmp_path: Path):
+    task_dir = tmp_path / "task"
+    create_task_directories(task_dir)
+    material = Material(
+        material_id="MAT-000001",
+        task_id="TASK-1",
+        source_scenario="pubmed_literature",
+        material_type="literature",
+        title="Material",
+        collection_time="2026-07-23T00:00:00+08:00",
+        raw_fields={"abstract": "Sensitivity was 88%."},
+    )
+    append_jsonl(task_dir / "data" / "materials.jsonl", material.model_dump(mode="json"))
+    card = build_draft_evidence_card(task_dir, material.model_dump(mode="json"), "EC-000001")
+    for filename in ["first.json", "second.json"]:
+        write_json(
+            task_dir / "staging" / "evidence_cards" / filename,
+            card.model_dump(mode="json"),
+        )
+
+    result = commit_staged_evidence(task_dir)
+    messages = [row["error"] for row in result["validation"]["errors"]]
+
+    assert result["committed_count"] == 0
+    assert sum("must match evidence_card_id" in message for message in messages) == 2
+    assert any("Duplicate staged evidence_card_id" in message for message in messages)
+
+
+def test_commit_staged_evidence_persists_deduplication_without_staged_cards(tmp_path: Path):
+    task_dir = tmp_path / "task"
+    create_task_directories(task_dir)
+    material = Material(
+        material_id="MAT-000001",
+        task_id="TASK-1",
+        source_scenario="pubmed_literature",
+        material_type="literature",
+        title="Material",
+        collection_time="2026-07-23T00:00:00+08:00",
+        raw_fields={"abstract": "Sensitivity was 88%."},
+    )
+    append_jsonl(task_dir / "data" / "materials.jsonl", material.model_dump(mode="json"))
+    original = build_draft_evidence_card(task_dir, material.model_dump(mode="json"), "EC-000001")
+    latest = original.model_copy(update={"summary": "Latest canonical summary."})
+    append_jsonl(task_dir / "data" / "evidence_cards.jsonl", original.model_dump(mode="json"))
+    append_jsonl(task_dir / "data" / "evidence_cards.jsonl", latest.model_dump(mode="json"))
+    export_evidence_card_files(task_dir, original.model_dump(mode="json"))
+
+    result = commit_staged_evidence(task_dir)
+    rows = list(read_jsonl(task_dir / "data" / "evidence_cards.jsonl"))
+    exported = read_json(task_dir / "evidence_cards" / "json" / "EC-000001.json")
+
+    assert result["committed_count"] == 0
+    assert result["deduplicated_count"] == 1
+    assert len(rows) == 1
+    assert rows[0]["summary"] == "Latest canonical summary."
+    assert exported["summary"] == "Latest canonical summary."
+
+
+def test_commit_staged_evidence_rejects_cross_material_legacy_duplicate_ids(tmp_path: Path):
+    task_dir = tmp_path / "task"
+    create_task_directories(task_dir)
+    first_material = Material(
+        material_id="MAT-000001",
+        task_id="TASK-1",
+        source_scenario="pubmed_literature",
+        material_type="literature",
+        title="First material",
+        collection_time="2026-07-23T00:00:00+08:00",
+        raw_fields={"abstract": "Sensitivity was 88%."},
+    )
+    second_material = first_material.model_copy(
+        update={"material_id": "MAT-000002", "title": "Second material"}
+    )
+    for material in [first_material, second_material]:
+        append_jsonl(task_dir / "data" / "materials.jsonl", material.model_dump(mode="json"))
+        card = build_draft_evidence_card(
+            task_dir,
+            material.model_dump(mode="json"),
+            "EC-000001",
+        )
+        append_jsonl(task_dir / "data" / "evidence_cards.jsonl", card.model_dump(mode="json"))
+
+    result = commit_staged_evidence(task_dir)
+    rows = list(read_jsonl(task_dir / "data" / "evidence_cards.jsonl"))
+
+    assert result["validation"]["ok"] is False
+    assert result["committed_count"] == 0
+    assert result["deduplicated_count"] == 0
+    assert len(rows) == 2
+    assert "different material_ids" in result["validation"]["errors"][0]["error"]
 
 
 def test_parse_pmc_articles_extracts_fulltext_fields():

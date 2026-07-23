@@ -25,6 +25,24 @@ def test_literature_profile_controls_retrieval_limits():
     assert pmc_params["pdf_download_limit"] == 10
 
 
+def test_quick_scan_honors_explicit_retmax_below_ten():
+    state = SimpleNamespace(
+        topic="CRP quantitative immunoassay",
+        confirmations={
+            "primary_query": "C反应蛋白 CRP 定量检测试剂盒",
+            "english_keywords": "C-reactive protein CRP quantitative immunoassay",
+            "literature_profile": "quick_scan",
+            "literature_retmax": 5,
+        },
+    )
+
+    plans = scenario_query_plans(state)
+
+    assert plans["pubmed_literature"][0].params["retmax"] == 5
+    assert plans["pmc_fulltext"][0].params["retmax"] == 5
+    assert plans["openalex_literature"][0].params["retmax"] == 5
+
+
 def test_complete_literature_profile_keeps_default_floor_when_retmax_is_stale_low():
     state = SimpleNamespace(
         topic="beta-hCG定量检测试剂盒（荧光免疫层析法）",

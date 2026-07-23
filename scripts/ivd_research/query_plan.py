@@ -372,7 +372,7 @@ def _literature_retmax(state: Any) -> int | str:
         return "all"
     try:
         parsed = int(value)
-        return min(max(parsed, 10), 1000)
+        return min(max(parsed, 1), 1000)
     except (TypeError, ValueError):
         return 0
 

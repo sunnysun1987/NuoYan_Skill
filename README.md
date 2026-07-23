@@ -117,6 +117,8 @@ Core fields are `delivery_artifacts_ready`, `v21_assets_ready`, `final_review_re
 
 `business_ready=true` requires more than generated files. The package must have confirmed search scope, complete source coverage or documented fallback, V2.1 source-site and knowledge assets, reviewed evidence cards, and a valid standard delivery folder.
 
+V2.1.11 adds an opt-in real-network acceptance test for OpenAlex and PubMed, allows reviewed staged evidence cards to replace automatic drafts with the same ID, honors explicitly small `quick_scan` retrieval limits, and tightens metric extraction so engineering sensitivity, citation numbers and lowercase conjunctions are not presented as diagnostic facts. LoD and complete cutoff ranges are now captured as structured metric facts.
+
 V2.1.10 aligns the skill instructions with the registered `nuoyan` CLI, makes report and delivery rendering translation-cache-only, fails closed when optional function signatures cannot be inspected, preserves partial query failures as `completed_with_warnings`, and makes delivery artifacts plus V2.1 knowledge assets explicit `business_ready` gates. CLI references, scenario documentation, report rules and the nine verification fields now share one contract.
 
 V2.1.9 removes analyte-by-analyte project patches from the common execution path. Confirmed project fields now control project identity, report subject labels, screening tags and local topic indexes; unrelated literature titles cannot reclassify the project. NMPA and PatentHub use short layered target/product/method queries instead of the full project profile blob. The cross-journal Yiigle source now uses its public search API before the legacy web-page fallback, and source-quality auditing detects contradictions between a no-result aggregate channel and successful specialist Chinese journals.
@@ -151,7 +153,10 @@ Live network checks should remain explicit and separate from normal CI:
 
 ```bash
 nuoyan doctor --network --json
+NUOYAN_RUN_LIVE_TESTS=1 python3 -m pytest -q scripts/tests/test_live_public_literature_e2e.py
 ```
+
+The opt-in acceptance test calls the real OpenAlex and PubMed routes, then verifies material records, evidence cards and the Excel review artifact. A passing deterministic suite alone does not establish that live sources are currently reachable.
 
 ## Release Note
 

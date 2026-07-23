@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nuoyan-skill-v2"
-version = "2.1.10"
+version = "2.1.11"
 description = "诺研_skill — IVD研发项目调研证据采集、报告和审阅表生成工具"
 requires-python = ">=3.11"
 dependencies = [
@@ -49,3 +49,6 @@ where = ["scripts"]
 [tool.pytest.ini_options]
 testpaths = ["scripts/tests"]
 pythonpath = ["scripts"]
+markers = [
+    "live_network: opt-in acceptance tests that call real public network sources",
+]
