@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  checks:
+    name: Python checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install project dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Verify CLI help
+        run: nuoyan --help
+
+      - name: Run dependency doctor
+        run: nuoyan doctor --json
+
+      - name: Run Ruff
+        run: ruff check scripts/
+
+      - name: Run tests
+        run: python -m pytest
+
+      - name: Check SKILL.md for forbidden identifier
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          forbidden = "ivd-research"
+          if forbidden in Path("SKILL.md").read_text(encoding="utf-8"):
+              raise SystemExit(f"SKILL.md contains the forbidden string: {forbidden}")
+          print(f"SKILL.md does not contain: {forbidden}")
+          PY
+
+      - name: Check README version matches package version
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          import tomllib
+
+          project = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+          package_version = project["project"]["version"]
+          readme_versions = re.findall(
+              r"(?i)\bV(\d+\.\d+\.\d+)\b",
+              Path("README.md").read_text(encoding="utf-8"),
+          )
+          if not readme_versions:
+              raise SystemExit("README.md does not contain a V-prefixed version number")
+
+          latest_readme_version = max(
+              readme_versions,
+              key=lambda version: tuple(int(part) for part in version.split(".")),
+          )
+          if package_version != latest_readme_version:
+              raise SystemExit(
+                  f"Version mismatch: pyproject.toml={package_version}, "
+                  f"README.md latest={latest_readme_version}"
+              )
+          print(f"Version match: {package_version}")
+          PY
