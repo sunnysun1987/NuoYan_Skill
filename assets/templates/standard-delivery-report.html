@@ -200,7 +200,7 @@
       <section class="tab-panel" id="tab-reading">
         <div class="metric-grid compact">
           <button class="metric-card metric-link" type="button" data-jump-tab="tab-reading" data-jump-target="evidence-map" aria-label="查看已登记材料说明和证据地图">
-            <div class="metric-top"><div class="value">{{ materials|length }}</div><div class="metric-arrow">查看</div></div>
+            <div class="metric-top"><div class="value">{{ registered_material_count }}</div><div class="metric-arrow">查看</div></div>
             <div class="label">已登记材料</div>
             <p class="metric-definition">已写入材料库的原始资料总数，含文献、法规、竞品、标准、专利和本地导入材料。</p>
           </button>
@@ -439,7 +439,8 @@
           <div class="metric-card"><div class="value warn">{{ collection_gap_summary.gap_count }}</div><div class="label">未补齐缺口</div></div>
           <div class="metric-card"><div class="value info">{{ collection_gap_summary.fallback_covered_count }}</div><div class="label">已兜底待复核</div></div>
           <div class="metric-card"><div class="value danger">{{ source_quality.high_count }}</div><div class="label">疑似假阴性</div></div>
-          <div class="metric-card"><div class="value">{{ materials|length }}</div><div class="label">已登记材料</div></div>
+          <div class="metric-card"><div class="value">{{ registered_material_count }}</div><div class="label">已登记材料</div></div>
+          <div class="metric-card"><div class="value">{{ excluded_material_count }}</div><div class="label">相关性排除</div></div>
         </div>
         {% if source_quality.issue_count %}
         <div class="quality-audit-panel">
@@ -477,6 +478,28 @@
           <div class="empty-state">当前未识别到需要单独处理的资料缺口。</div>
           {% endif %}
         </div>
+        {% if excluded_materials %}
+        <div class="quality-audit-panel">
+          <h3>项目相关性排除记录</h3>
+          <p>以下材料保留在原始材料库中，但不参与当前项目分析。请人工复核排除理由，避免材料静默消失。</p>
+          <table>
+            <thead><tr><th>材料</th><th>来源</th><th>排除理由</th><th>匹配信号</th></tr></thead>
+            <tbody>
+              {% for row in excluded_materials %}
+              <tr>
+                <td>
+                  {% if row.source_url %}<a href="{{ row.source_url }}" target="_blank" rel="noopener noreferrer">{{ row.title }}</a>{% else %}{{ row.title }}{% endif %}
+                  <div class="muted">{{ row.material_id }}</div>
+                </td>
+                <td>{{ row.source }}</td>
+                <td>{{ row.reason }}</td>
+                <td>{{ row.matches or "无" }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% endif %}
       </section>
   </div>
 </main>

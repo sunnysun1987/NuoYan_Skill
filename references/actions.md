@@ -28,5 +28,5 @@
 
 - `run_full_pipeline`、`run_delivery_pipeline`、正式 `run_scenario` 执行前，必须完成 `confirm_search_profile`。
 - `build_standard_delivery` 前必须已有材料、证据卡、场景状态和标准审阅表；否则只能生成草稿，并在报告首页显示缺口。
-- `verify_delivery` 是最终回复前的必要动作；最终回复必须说明 `delivery_artifacts_ready`、`scenario_coverage_ready`、`final_review_ready` 和 `business_ready`。
+- `verify_delivery` 是最终回复前的必要动作；最终回复必须说明 `delivery_artifacts_ready`、`v21_assets_ready`、`final_review_ready`、`scenario_coverage_ready`、`search_profile_ready`、`fallback_ready`、`network_ready`、`source_quality_ready` 和 `business_ready`。
 - `fallback_import_finding` 只能导入可回溯公开来源或用户合法提供材料，不得导入搜索摘要本身作为强证据。

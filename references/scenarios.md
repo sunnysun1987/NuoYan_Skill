@@ -15,6 +15,7 @@
 | openalex_literature | OpenAlex 文献发现与 DOI/OA 信息 | literature | 英文疾病、靶标、样本、方法学、开放获取线索 | english_keywords、literature_date_range | OpenAlex-only 只能作为线索；必须回溯 DOI/PMID/PMCID/期刊官网后进入强证据 |
 | wiley_alz | Wiley Alzheimer 文献 | literature | 英文疾病、biomarker、diagnosis | english_keywords | AD/认知障碍专用；Cloudflare/访问限制不得绕过 |
 | yiigle_fulltext | 中华医学期刊全文数据库 | literature | 官方公开检索 API：核心词、文献类型、出版日期；网页详情兜底 | literature_date_range | 保存 API 原始 JSON、题录与摘要；聚合源未命中但专门期刊命中时标记渠道矛盾 |
+| life_science_research | 外部科学数据库插件证据 | literature | 靶标、蛋白、基因、通路、临床试验、遗传与公共数据库分通道查询 | 已确认项目画像 | 先生成查询计划；插件缺失或覆盖不足时提示安装/补采，不得伪装为已完成 |
 | local_import | 本地材料导入 | local_import | 文件名和用户说明 | 无 | 解析失败标记 needs_manual_review |
 
 ## 完整调研必要场景
@@ -29,6 +30,7 @@
 - 通用国际文献：`pubmed_literature`、`pmc_fulltext`、`openalex_literature`
 - 神经/认知方向专用：`yiigle_zhsjkzz`
 - AD/认知障碍专用：`wiley_alz`
+- 科学数据库插件：`life_science_research`（项目画像适用或未明确豁免时）
 
 适用场景状态不得停留在 `not_started`。失败、权限受限、登录受限、无结果和暂缓都必须有 `last_message`，说明检索式、失败原因、兜底动作和下一步补证任务。非适用专科信源应记录为项目画像排除，不进入客户报告的资料缺口。
 

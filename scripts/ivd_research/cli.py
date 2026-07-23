@@ -210,7 +210,7 @@ def _supports_kwarg(func, name: str) -> bool:
     try:
         return name in inspect.signature(func).parameters
     except (TypeError, ValueError):
-        return True
+        return False
 
 
 def _record_life_science_plan_if_required(task_dir: Path, state) -> dict:
@@ -283,10 +283,10 @@ def _record_scenario_result(task_dir: Path, state, scenario: str, result) -> Non
         material if isinstance(material, Material) else Material.model_validate(material)
         for material in getattr(result, "materials", [])
     ]
-    record_materials(task_dir, materials)
+    recorded_materials = record_materials(task_dir, materials)
     if scenario in state.scenario_statuses:
         state.scenario_statuses[scenario].status = result.status
-        state.scenario_statuses[scenario].material_count += len(materials)
+        state.scenario_statuses[scenario].material_count += len(recorded_materials)
         if result.status != "completed":
             state.scenario_statuses[scenario].failure_count += 1
         state.scenario_statuses[scenario].last_message = result.message_zh
@@ -322,23 +322,34 @@ def _merge_plan_results(results: list[ScenarioResult], attempts: list[dict]) -> 
             material_result = result
             materials.extend(result.materials)
     base = material_result or results[-1]
+    collection_errors = [error for result in results for error in result.collection_errors]
     message = base.message_zh
     if len(attempts) > 1:
         message = f"{message} 已按 {len(attempts)} 个检索层级重试/执行。"
     if materials:
         message = f"{message} 合计形成 {len(materials)} 条材料。"
+        warning_statuses = {
+            FailureType.COLLECTION_FAILED.value,
+            FailureType.DOWNLOAD_FAILED.value,
+            FailureType.PARSE_FAILED.value,
+            FailureType.PERMISSION_REQUIRED.value,
+            FailureType.NEEDS_LOGIN.value,
+        }
+        has_warnings = bool(collection_errors) or any(result.status in warning_statuses for result in results)
+        if has_warnings:
+            message = f"{message} 部分检索层级失败，结果需结合采集异常复核。"
         return ScenarioResult(
-            status="completed",
+            status="completed_with_warnings" if has_warnings else "completed",
             materials=materials,
             message_zh=message,
-            collection_errors=base.collection_errors,
+            collection_errors=collection_errors,
         )
     return ScenarioResult(
         status=base.status,
         materials=[],
         failure_type=base.failure_type,
         message_zh=message,
-        collection_errors=base.collection_errors,
+        collection_errors=collection_errors,
     )
 
 
@@ -432,10 +443,10 @@ def _record_browser_result(task_dir: Path, state, scenario: str, result: dict) -
         material if isinstance(material, Material) else Material.model_validate(material)
         for material in result.get("materials", [])
     ]
-    record_materials(task_dir, materials)
+    recorded_materials = record_materials(task_dir, materials)
     if scenario in state.scenario_statuses:
         state.scenario_statuses[scenario].status = result["status"]
-        state.scenario_statuses[scenario].material_count += len(materials)
+        state.scenario_statuses[scenario].material_count += len(recorded_materials)
         if result["status"] not in {"completed", "search_results"}:
             state.scenario_statuses[scenario].failure_count += 1
         state.scenario_statuses[scenario].last_message = result["message_zh"]
@@ -1032,7 +1043,7 @@ def run_delivery_pipeline_command(
     output_root: Optional[Path] = typer.Option(None, "--output-root"),
     browser_page_limit: int = typer.Option(5, "--browser-page-limit", min=1),
     http_page_limit: int = typer.Option(100, "--http-page-limit", min=1),
-    headless: bool = typer.Option(False, "--headless/--headed"),
+    headless: bool = typer.Option(True, "--headless/--headed"),
     launch_mode: str = typer.Option("edge-cdp", "--launch-mode"),
     profile_scope: str = typer.Option("task", "--profile-scope"),
     skip_collection: bool = typer.Option(False, "--skip-collection"),
@@ -1345,9 +1356,9 @@ def run_browser_workflow_command(
             material if isinstance(material, Material) else Material.model_validate(material)
             for material in result.get("materials", [])
         ]
-        record_materials(task_dir, materials)
+        recorded_materials = record_materials(task_dir, materials)
         state.scenario_statuses[scenario].status = result["status"]
-        state.scenario_statuses[scenario].material_count += len(materials)
+        state.scenario_statuses[scenario].material_count += len(recorded_materials)
         state.scenario_statuses[scenario].last_message = result["message_zh"]
         if result["status"] not in {"completed", "search_results"}:
             state.scenario_statuses[scenario].failure_count += 1

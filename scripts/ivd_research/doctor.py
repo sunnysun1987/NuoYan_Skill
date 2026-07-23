@@ -128,7 +128,7 @@ def run_doctor(output_root: Path, *, include_network: bool = False) -> dict:
             "typer",
             "CLI 框架",
             "typer",
-            "缺少 Typer 会导致 ivd-research 命令无法运行。",
+            "缺少 Typer 会导致 nuoyan 命令无法运行。",
             True,
         ),
         dependency_check(
@@ -198,7 +198,7 @@ def run_doctor(output_root: Path, *, include_network: bool = False) -> dict:
 
     try:
         output_root.mkdir(parents=True, exist_ok=True)
-        probe = output_root / f".ivd-research-write-test-{uuid.uuid4().hex}"
+        probe = output_root / f".nuoyan-write-test-{uuid.uuid4().hex}"
         probe.write_text("ok", encoding="utf-8")
         writable = True
         impact_zh = "输出目录可写。"

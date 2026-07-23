@@ -8,8 +8,14 @@ to the CLI-driven HTML/Excel/zip pipeline.
 from pathlib import Path
 from typing import Any
 
+from .jsonl import read_json
 from .models import Material
-from .status import count_lines, now_iso, record_materials
+from .status import (
+    find_duplicate_material,
+    next_material_id,
+    now_iso,
+    record_materials,
+)
 
 
 MATERIAL_TYPE_LABELS = {
@@ -61,8 +67,32 @@ def import_finding(
     Returns a dict with material_id and relative_paths for downstream use.
     """
     material_type = _infer_material_type(title, content, material_type)
-    next_index = count_lines(task_dir / "data" / "materials.jsonl") + 1
-    material_id = f"MAT-{next_index:06d}"
+    task = read_json(task_dir / "task.json")
+    task_id = str(task.get("task_id") or "")
+    duplicate_keys = [
+        f"identifier:{identifier.strip().lower()}"
+        if identifier.strip()
+        else f"source-title:{source_url.strip().lower()}|{' '.join(title.lower().split())}"
+    ]
+    duplicate = find_duplicate_material(
+        task_dir,
+        {
+            "source_scenario": source,
+            "source_url": source_url,
+            "title": title,
+            "possible_duplicate_keys": duplicate_keys,
+        },
+    )
+    if duplicate:
+        return {
+            "material_id": duplicate.get("material_id", ""),
+            "material_type": duplicate.get("material_type", material_type),
+            "extracted_text_path": duplicate.get("extracted_text_path", ""),
+            "taxonomy_tags": taxonomy_tags or [],
+            "evidence_strength": evidence_strength,
+            "recorded": False,
+        }
+    material_id = next_material_id(task_dir)
 
     # Store extracted text
     text_dir = task_dir / "extracted_text" / material_type
@@ -85,7 +115,7 @@ def import_finding(
 
     material = Material(
         material_id=material_id,
-        task_id="",  # filled by caller if needed
+        task_id=task_id,
         source_scenario=source,
         material_type=material_type,
         title=title,
@@ -104,9 +134,10 @@ def import_finding(
         extracted_text_status="completed",
         extracted_text_path=relative_text,
         content_snapshot_path=relative_text,
+        possible_duplicate_keys=duplicate_keys,
     )
     materials = [material]
-    record_materials(task_dir, materials)
+    recorded_materials = record_materials(task_dir, materials)
 
     # Update scenario_statuses so the Scenario Coverage table in reports
     # reflects materials imported via import-finding (not just CLI collection).
@@ -116,10 +147,12 @@ def import_finding(
         state = load_task(task_dir)
         scenario = state.scenario_statuses.get(source)
         if scenario is not None:
-            scenario.material_count += 1
-            if scenario.status in ("not_started", None, ""):
-                scenario.status = "completed"
-                scenario.last_message = f"通过 import-finding 导入 {len(materials)} 条材料。"
+            scenario.material_count += len(recorded_materials)
+            scenario.status = "completed"
+            scenario.last_message = (
+                f"通过 {source} 可见官方页面/外部发现导入材料，"
+                f"当前累计 {scenario.material_count} 条。"
+            )
             save_task(state)
     except Exception:
         pass  # Non-critical: report scenario coverage may lag, but materials are safe.
@@ -130,4 +163,5 @@ def import_finding(
         "extracted_text_path": relative_text,
         "taxonomy_tags": taxonomy_tags or [],
         "evidence_strength": evidence_strength,
+        "recorded": bool(recorded_materials),
     }

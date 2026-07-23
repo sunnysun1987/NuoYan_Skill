@@ -80,6 +80,7 @@ def test_hcg_query_plan_does_not_enable_alzheimer_specific_source():
     assert plans["pubmed_literature"][0].query == "human chorionic gonadotropin beta hCG immunoassay"
     assert plans["pmc_fulltext"][0].query == "human chorionic gonadotropin beta hCG immunoassay"
     assert plans["openalex_literature"][0].query == "human chorionic gonadotropin beta hCG immunoassay"
+    assert plans["yiigle_fulltext"][0].params["retmax"] == "all"
     assert any(
         plan.params["query_role"] == "openalex_method_keywords"
         and "fluorescence immunochromatographic assay" in plan.query
@@ -114,8 +115,15 @@ def test_generic_aliases_build_source_safe_query_ladder_without_project_rule():
 
     assert plans["standards_current"][0].query == "降钙素原"
     assert plans["openalex_literature"][0].query == "procalcitonin PCT immunoassay sepsis"
+    assert plans["yiigle_fulltext"][0].params["retmax"] == "all"
     assert "wiley_alz" not in plans
     assert "yiigle_zhsjkzz" not in plans
+
+
+def test_yiigle_uses_complete_profile_depth_without_explicit_all_request():
+    plans = scenario_query_plans(_state(literature_retmax=None))
+
+    assert plans["yiigle_fulltext"][0].params["retmax"] == 200
 
 
 def test_product_sources_use_layered_queries_instead_of_full_profile_blob():

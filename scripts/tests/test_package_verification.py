@@ -59,6 +59,19 @@ def _task_dir(tmp_path: Path) -> Path:
     return Path(state.task_dir)
 
 
+def test_build_standard_delivery_does_not_run_translation(monkeypatch, tmp_path: Path):
+    task_dir = _task_dir(tmp_path)
+
+    def forbidden_translation(*args, **kwargs):
+        raise AssertionError("delivery rendering must only read translation cache")
+
+    monkeypatch.setattr("ivd_research.translation.translate_materials", forbidden_translation)
+
+    result = build_standard_delivery(task_dir)
+
+    assert Path(result["delivery_dir"]).exists()
+
+
 def _write_single_material_and_card(task_dir: Path) -> None:
     text_path = task_dir / "extracted_text" / "literature" / "MAT-000001.txt"
     text_path.parent.mkdir(parents=True, exist_ok=True)
@@ -368,6 +381,13 @@ def test_verify_package_accepts_reviewed_complete_offline_package(tmp_path: Path
     assert result["fallback_ready"] is True
     assert result["network_ready"] is True
     assert result["business_ready"] is True
+
+    Path(result["standard_delivery"]["report"]).unlink()
+    assert verify_package(task_dir)["business_ready"] is False
+
+    build_standard_delivery(task_dir)
+    (task_dir / "knowledge" / "literature_graph.json").unlink()
+    assert verify_package(task_dir)["business_ready"] is False
 
 
 def test_verify_package_does_not_require_ad_sources_for_hcg_project(tmp_path: Path):

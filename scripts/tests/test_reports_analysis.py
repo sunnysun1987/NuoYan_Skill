@@ -1,4 +1,8 @@
 from ivd_research.reports import (
+    _display_publication_date,
+    _screening_translation_items,
+    _scenario_level,
+    _scenario_status_text,
     build_business_decision,
     build_business_collection_gaps,
     build_business_action_rows,
@@ -48,6 +52,48 @@ def _literature_material():
         "extracted_text_status": "completed",
         "extracted_text_path": "extracted_text/literature/MAT-000001.txt",
     }
+
+
+def test_screening_translation_reads_cache_without_creating_engine(tmp_path):
+    import ivd_research.reports as reports
+
+    assert not hasattr(reports, "TranslationEngine")
+    material = _literature_material()
+
+    items = _screening_translation_items(
+        {"material_id": "MAT-000001", "excerpt_lines": []},
+        material,
+        translation_cache={},
+        translation_capability={
+            "configured": True,
+            "command_available": True,
+            "_task_dir": str(tmp_path),
+        },
+    )
+
+    assert items[0]["status"] == "not_generated"
+
+
+def test_partial_scenario_is_not_rendered_as_success():
+    assert _scenario_level("completed_with_warnings", 3) == "warn"
+    assert "部分完成" in _scenario_status_text("completed_with_warnings", 3)
+
+
+def test_publication_date_uses_current_day_at_call_time(monkeypatch):
+    from datetime import date as real_date
+
+    class MutableDate(real_date):
+        current = real_date(2026, 7, 23)
+
+        @classmethod
+        def today(cls):
+            return cls.current
+
+    monkeypatch.setattr("ivd_research.reports.date", MutableDate)
+    assert "未来日期" in _display_publication_date("2026-07-24")
+
+    MutableDate.current = real_date(2026, 7, 25)
+    assert _display_publication_date("2026-07-24") == "2026-07-24"
 
 
 def _hcg_literature_material():

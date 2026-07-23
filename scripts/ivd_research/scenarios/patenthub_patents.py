@@ -13,6 +13,11 @@ from .site_collect import collect_search_snapshot
 PATENTHUB_GLOBAL_SEARCH_URL = "https://www.patenthub.cn/s?ds=all&q={query}"
 PATENT_NUMBER_RE = re.compile(r"\b[A-Z]{2}\d{5,}[A-Z0-9]?\b")
 PATENT_DETAIL_RE = re.compile(r"/patent/([A-Z]{2}\d{5,}[A-Z0-9]?)\.html$", re.I)
+PATENTHUB_LOGIN_MARKERS = (
+    "用户登录",
+    "注册登录后可以查看更多专利信息",
+    "登录后可以查看更多专利信息",
+)
 
 
 def adapter():
@@ -36,6 +41,8 @@ def collect(task_id, task_dir, params):
 
 def parse_patenthub_result_list(html: str, base_url: str) -> list[dict[str, Any]]:
     soup = BeautifulSoup(html, "html.parser")
+    if patenthub_page_status(soup.get_text(" ", strip=True), soup.title.get_text(" ", strip=True) if soup.title else "") == "needs_login":
+        return []
     entries: list[dict[str, Any]] = []
     seen: set[str] = set()
     for index, anchor in enumerate(soup.select("a[href*='/patent/']"), start=1):
@@ -71,6 +78,29 @@ def parse_patenthub_detail(html: str, detail_url: str) -> dict[str, Any]:
     page_title = title_node.get_text(" ", strip=True) if title_node else "专利详情"
     body_text = soup.get_text(" ", strip=True)
     compact_text = normalize_text(body_text)
+    page_status = patenthub_page_status(compact_text, page_title)
+
+    if page_status != "page_ready":
+        return {
+            "title": "",
+            "detail_url": detail_url,
+            "basic_info_text": "",
+            "publication_number": "",
+            "application_number": "",
+            "application_date": "",
+            "publication_date": "",
+            "inventors": "",
+            "applicant": "",
+            "patentee": "",
+            "ipc": "",
+            "abstract": "",
+            "legal_status": "",
+            "extracted_text": "",
+            "pdf_status": "not_attempted",
+            "pdf_restriction_zh": "",
+            "page_status": page_status,
+            "is_valid_patent_detail": False,
+        }
 
     basic_info_text = (
         section_text_by_heading(soup, "基本信息")
@@ -109,7 +139,7 @@ def parse_patenthub_detail(html: str, detail_url: str) -> dict[str, Any]:
     pdf_status = "permission_required" if pdf_restricted else "not_found"
     pdf_restriction_zh = "专利 PDF 或全文下载受 VIP/权限限制，未尝试付费下载。" if pdf_restricted else ""
 
-    return {
+    detail = {
         "title": patent_title,
         "detail_url": detail_url,
         "basic_info_text": basic_info_text,
@@ -139,7 +169,38 @@ def parse_patenthub_detail(html: str, detail_url: str) -> dict[str, Any]:
         ),
         "pdf_status": pdf_status,
         "pdf_restriction_zh": pdf_restriction_zh,
+        "page_status": page_status,
     }
+    detail["is_valid_patent_detail"] = valid_patenthub_detail(detail)
+    return detail
+
+
+def patenthub_page_status(text: str, title: str = "") -> str:
+    normalized = normalize_text(f"{title} {text}")
+    if any(marker in normalized for marker in PATENTHUB_LOGIN_MARKERS):
+        return "needs_login"
+    return "page_ready"
+
+
+def valid_patenthub_detail(detail: dict[str, Any]) -> bool:
+    publication_number = normalize_text(str(detail.get("publication_number", "")))
+    title = normalize_text(str(detail.get("title", "")))
+    evidence_fields = (
+        "application_number",
+        "applicant",
+        "patentee",
+        "inventors",
+        "ipc",
+        "abstract",
+        "legal_status",
+    )
+    has_detail_evidence = any(normalize_text(str(detail.get(key, ""))) for key in evidence_fields)
+    return bool(
+        PATENT_NUMBER_RE.fullmatch(publication_number)
+        and title
+        and title not in {"专利详情", "用户登录"}
+        and has_detail_evidence
+    )
 
 
 def patent_number_from_detail_url(url: str) -> str:
@@ -244,6 +305,8 @@ def build_patenthub_material(
     detail: dict[str, Any],
     extracted_text_path: str = "",
 ) -> Material:
+    if not detail.get("is_valid_patent_detail"):
+        raise ValueError("not a valid PatentHub patent detail")
     return Material(
         material_id=material_id,
         task_id=task_id,

@@ -16,6 +16,7 @@ from .project_profile import (
     project_domain as profile_project_domain,
     project_subject,
 )
+from .project_relevance import assess_material_relevance
 from .query_plan import resolved_literature_profile
 from .quality import (
     OPTIONAL_NOT_STARTED_SCENARIOS,
@@ -25,11 +26,9 @@ from .quality import (
 from .source_quality import build_source_quality_audit
 from .status import now_iso
 from .translation import (
-    TranslationEngine,
     extract_parameters,
     is_mostly_english,
     load_translation_cache,
-    translation_cache_path,
     text_hash,
     translation_status,
 )
@@ -56,9 +55,9 @@ REPORT_SECTIONS = [
 ]
 
 SOURCE_DISPLAY_LIMIT = 100
-CURRENT_REPORT_DATE = date.today()
 STATUS_LABELS = {
     "completed": "completed / 已完成",
+    "completed_with_warnings": "completed_with_warnings / 部分完成",
     "collection_failed": "collection_failed / 采集失败",
     "needs_login": "needs_login / 需要登录",
     "permission_required": "permission_required / 权限受限",
@@ -169,7 +168,7 @@ def _display_publication_date(value: str) -> str:
         return raw
     year, month, day = (int(match.group(1)), int(match.group(2)), int(match.group(3)))
     is_month_only = bool(re.fullmatch(r"\d{4}[-/]\d{1,2}", raw))
-    is_future = date(year, month, day) > CURRENT_REPORT_DATE
+    is_future = date(year, month, day) > date.today()
     if is_future:
         if is_month_only:
             return f"{year:04d}-{month:02d}（待核验，来源返回未来刊期）"
@@ -271,6 +270,7 @@ def normalize_materials(
     evidence_cards: list[dict] | None = None,
     *,
     task_dir: Path | None = None,
+    confirmations: dict | None = None,
 ) -> list[dict]:
     from .constants import MATERIAL_TYPE_LABELS
     from .scenarios.registry import all_scenarios
@@ -366,8 +366,40 @@ def normalize_materials(
                 material.get("failure_reason", ""),
             ]
         ).strip()
+        relevance = assess_material_relevance(row, confirmations)
+        row["project_relevant"] = relevance["relevant"]
+        row["project_relevance_reason"] = relevance["reason"]
+        row["project_relevance_matches"] = (
+            relevance["matched_aliases"] + relevance["matched_context_terms"]
+        )
         normalized.append(row)
     return normalized
+
+
+def build_excluded_material_rows(materials: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    reason_labels = {
+        "no_project_signal_in_material": "未匹配到当前项目的目标物或用途信号",
+    }
+    rows: list[dict[str, Any]] = []
+    for material in materials:
+        if material.get("project_relevant", True):
+            continue
+        reason_code = str(material.get("project_relevance_reason") or "")
+        rows.append(
+            {
+                "material_id": str(material.get("material_id") or ""),
+                "title": str(material.get("title") or "未命名材料"),
+                "source": str(
+                    material.get("source_scenario_zh")
+                    or material.get("source_scenario")
+                    or "未知来源"
+                ),
+                "source_url": str(material.get("source_url") or ""),
+                "reason": reason_labels.get(reason_code, reason_code or "项目相关性不足"),
+                "matches": "；".join(material.get("project_relevance_matches") or []),
+            }
+        )
+    return rows
 
 
 def clean_report_text(text: str) -> str:
@@ -1252,6 +1284,8 @@ def build_section_evidence_rows(
         material = materials_by_id.get(card.get("material_id"), {})
         if not material:
             continue
+        if material.get("project_relevant") is False:
+            continue
         text = _evidence_text(material, card)
         score = _match_score(text, terms) if terms else 1
         if score <= 0:
@@ -1407,11 +1441,6 @@ def _material_title_join(materials: list[dict], limit: int = 3) -> str:
     if len(materials) > limit:
         titles.append(f"另 {len(materials) - limit} 条")
     return "；".join(titles) if titles else "暂无材料"
-
-
-def _contains_any(text: str, terms: list[str]) -> bool:
-    lowered = text.lower()
-    return any(term.lower() in lowered for term in terms)
 
 
 def _count_topic(materials: list[dict], terms: list[str]) -> int:
@@ -2773,7 +2802,7 @@ def _screening_translation_items(
     configured = bool(capability.get("configured"))
     command_available = bool(capability.get("command_available", True))
 
-    def cached_or_generate(field: str, label: str, text: str) -> dict[str, str]:
+    def cached_translation(field: str, label: str, text: str) -> dict[str, str]:
         digest = text_hash(text)
         cached = cache.get((material_id, field, digest))
         if cached and cached.get("translation_zh"):
@@ -2784,34 +2813,6 @@ def _screening_translation_items(
                 "paragraphs": _paragraphize_reading_text(str(cached.get("translation_zh") or "").strip()),
                 "note": "基于已缓存的专业中文翻译。",
             }
-        if task_dir := capability.get("_task_dir"):
-            try:
-                engine = TranslationEngine()
-                if engine.configured:
-                    translation_zh = engine.translate_text(text, context=f"{material.get('title') or card.get('title') or ''} / {label}")
-                    row = {
-                        "time": now_iso(),
-                        "material_id": material_id,
-                        "field": field,
-                        "label": label,
-                        "text_hash": digest,
-                        "source_text": text,
-                        "translation_zh": translation_zh,
-                        "status": "completed",
-                        "engine": engine.active_provider() or engine.provider,
-                        "model": engine.model,
-                    }
-                    append_jsonl(translation_cache_path(Path(str(task_dir))), row)
-                    cache[(material_id, field, digest)] = row
-                    return {
-                        "label": label,
-                        "status": "completed",
-                        "text": translation_zh,
-                        "paragraphs": _paragraphize_reading_text(translation_zh),
-                        "note": "基于交付生成时写入的专业中文翻译。",
-                    }
-            except Exception:
-                pass
         return {}
 
     items: list[dict[str, str]] = []
@@ -2821,7 +2822,7 @@ def _screening_translation_items(
         if not text or not is_mostly_english(text):
             continue
         field = f"abstract:{index}:{label}"
-        generated = cached_or_generate(field, label, text)
+        generated = cached_translation(field, label, text)
         if generated:
             items.append(generated)
         else:
@@ -2850,7 +2851,7 @@ def _screening_translation_items(
         for excerpt in card.get("excerpt_lines") or []:
             text = " ".join(str(excerpt or "").split())
             if is_mostly_english(text):
-                generated = cached_or_generate("excerpt:1", "Excerpt", text)
+                generated = cached_translation("excerpt:1", "Excerpt", text)
                 if generated:
                     items.append(generated)
                 elif command_available and not configured:
@@ -2910,8 +2911,6 @@ def build_screening_cards(
     materials_by_id = {item.get("material_id"): item for item in materials}
     translation_cache = load_translation_cache(task_dir) if task_dir else {}
     translation_capability = translation_status(task_dir) if task_dir else {}
-    if task_dir:
-        translation_capability["_task_dir"] = str(task_dir)
     screening_cards: list[dict[str, Any]] = []
     for index, source_card in enumerate(evidence_cards, start=1):
         material = materials_by_id.get(source_card.get("material_id"), {})
@@ -2938,6 +2937,8 @@ def build_screening_cards(
         row["source_label"] = material.get("source_scenario_zh") or material.get("material_type_zh") or "-"
         row["priority_class"] = priority_class
         row["priority_label"] = priority_label
+        row["project_relevant"] = material.get("project_relevant", True)
+        row["project_relevance_reason"] = material.get("project_relevance_reason", "")
         row["stage"] = _screening_stage(material, row)
         row["sample"] = _pick_screening_terms(text, SCREENING_SAMPLE_TERMS, fallback="样本待复核")
         row["platform"] = _pick_screening_terms(text, SCREENING_PLATFORM_TERMS, fallback="平台待复核")
@@ -3087,6 +3088,7 @@ def build_report(task_dir: Path, report_type: str) -> dict:
         list(read_jsonl(task_dir / "data" / "materials.jsonl")),
         evidence_cards,
         task_dir=task_dir,
+        confirmations=task.get("confirmations") or {},
     )
     scenario_statuses = normalize_scenario_statuses(
         list((task.get("scenario_statuses") or {}).values())
@@ -3159,6 +3161,8 @@ def build_report(task_dir: Path, report_type: str) -> dict:
 
 
 def _scenario_level(status: str, count: int) -> str:
+    if status == "completed_with_warnings":
+        return "warn"
     if count > 0 or status == "completed":
         return "success"
     if status in {"collection_failed", "needs_login", "permission_required"}:
@@ -3167,6 +3171,8 @@ def _scenario_level(status: str, count: int) -> str:
 
 
 def _scenario_status_text(status: str, count: int) -> str:
+    if status == "completed_with_warnings":
+        return "completed_with_warnings / 部分完成，需复核"
     if count > 0:
         return "completed / 已采集"
     if status == "completed":
@@ -3196,8 +3202,15 @@ def build_standard_report(task_dir: Path, output: Path | None = None) -> dict:
         list(read_jsonl(task_dir / "data" / "materials.jsonl")),
         evidence_cards,
         task_dir=task_dir,
+        confirmations=task.get("confirmations") or {},
     )
     materials_by_id = {item.get("material_id"): item for item in materials}
+    analysis_materials = [item for item in materials if item.get("project_relevant", True)]
+    excluded_materials = build_excluded_material_rows(materials)
+    analysis_material_ids = {item.get("material_id") for item in analysis_materials}
+    analysis_evidence_cards = [
+        card for card in evidence_cards if card.get("material_id") in analysis_material_ids
+    ]
     scenario_statuses = normalize_scenario_statuses(
         list((task.get("scenario_statuses") or {}).values())
     )
@@ -3231,8 +3244,15 @@ def build_standard_report(task_dir: Path, output: Path | None = None) -> dict:
         scenario_statuses=scenario_statuses,
         required_scenario_ids=required_scenarios,
     )
-    analysis = build_feasibility_analysis(materials, evidence_cards, visible_scenario_statuses)
+    analysis = build_feasibility_analysis(
+        analysis_materials,
+        analysis_evidence_cards,
+        visible_scenario_statuses,
+    )
     metric_facts = list(read_jsonl(task_dir / "knowledge" / "metric_facts.jsonl"))
+    metric_facts = [
+        fact for fact in metric_facts if fact.get("material_id") in analysis_material_ids
+    ]
     source_runs = list(read_jsonl(task_dir / "data" / "source_runs.jsonl"))
     knowledge_status = {
         "metric_fact_count": len(metric_facts),
@@ -3242,7 +3262,7 @@ def build_standard_report(task_dir: Path, output: Path | None = None) -> dict:
     }
     translation_capability = translation_status(task_dir)
 
-    literature_materials = _by_type(materials, "literature")
+    literature_materials = _by_type(analysis_materials, "literature")
     pubmed_materials = [
         item for item in literature_materials if item.get("source_scenario") == "pubmed_literature"
     ]
@@ -3267,10 +3287,10 @@ def build_standard_report(task_dir: Path, output: Path | None = None) -> dict:
             "wiley_alz",
         }
     ]
-    regulatory_materials = _by_type(materials, "regulatory")
-    competitor_materials = _by_type(materials, "competitor")
-    standard_materials = _by_type(materials, "standard")
-    patent_materials = _by_type(materials, "patent")
+    regulatory_materials = _by_type(analysis_materials, "regulatory")
+    competitor_materials = _by_type(analysis_materials, "competitor")
+    standard_materials = _by_type(analysis_materials, "standard")
+    patent_materials = _by_type(analysis_materials, "patent")
     neurology_literature_materials = [
         item for item in literature_materials if item.get("source_scenario") == "yiigle_zhsjkzz"
     ]
@@ -3436,7 +3456,7 @@ def build_standard_report(task_dir: Path, output: Path | None = None) -> dict:
         if item.get("status") in {"collection_failed", "needs_login", "permission_required"}
     ]
     business_decision = build_business_decision(
-        materials=materials,
+        materials=analysis_materials,
         literature_materials=literature_materials,
         regulatory_materials=regulatory_materials,
         competitor_materials=competitor_materials,
@@ -3472,35 +3492,40 @@ def build_standard_report(task_dir: Path, output: Path | None = None) -> dict:
         task_dir=task_dir,
         confirmations=task.get("confirmations") or {},
     )
+    analysis_screening_cards = [
+        card for card in screening_cards if card.get("project_relevant", True)
+    ]
     translation_capability = translation_status(task_dir)
-    core_cards = [card for card in screening_cards if card.get("priority_class") == "A"][:60]
+    core_cards = [
+        card for card in analysis_screening_cards if card.get("priority_class") == "A"
+    ][:60]
     if not core_cards:
-        core_cards = screening_cards[:30]
-    filter_groups = build_filter_groups(screening_cards)
+        core_cards = analysis_screening_cards[:30]
+    filter_groups = build_filter_groups(analysis_screening_cards)
     core_filter_groups = build_filter_groups(core_cards, include_priority=False)
-    screening_summary = build_screening_summary(screening_cards)
+    screening_summary = build_screening_summary(analysis_screening_cards)
     project_analysis_sections = build_project_analysis_sections(
         literature_materials=literature_materials,
         regulatory_materials=regulatory_materials,
         competitor_materials=competitor_materials,
         standard_materials=standard_materials,
         patent_materials=patent_materials,
-        materials=materials,
+        materials=analysis_materials,
         confirmations=task.get("confirmations") or {},
     )
     project_analysis_sections = attach_analysis_evidence_rows(
         project_analysis_sections,
-        materials=materials,
-        screening_cards=screening_cards,
+        materials=analysis_materials,
+        screening_cards=analysis_screening_cards,
     )
     metric_fact_rows = build_metric_fact_rows(
         metric_facts,
         materials_by_id=materials_by_id,
-        screening_cards=screening_cards,
+        screening_cards=analysis_screening_cards,
     )
     expert_decision = build_expert_decision(
         business_decision,
-        materials=materials,
+        materials=analysis_materials,
         screening_summary=screening_summary,
         knowledge_status=knowledge_status,
         failed_scenarios=failed_scenarios,
@@ -3514,10 +3539,16 @@ def build_standard_report(task_dir: Path, output: Path | None = None) -> dict:
         task_id=task["task_id"],
         topic=task["topic"],
         report_title=report_display_title(task["topic"]),
-        materials=materials,
-        materials_by_id=materials_by_id,
-        evidence_cards=evidence_cards,
-        screening_cards=screening_cards,
+        materials=analysis_materials,
+        registered_material_count=len(materials),
+        included_material_count=len(analysis_materials),
+        excluded_materials=excluded_materials,
+        excluded_material_count=len(excluded_materials),
+        materials_by_id={
+            item.get("material_id"): item for item in analysis_materials
+        },
+        evidence_cards=analysis_evidence_cards,
+        screening_cards=analysis_screening_cards,
         core_cards=core_cards,
         filter_groups=filter_groups,
         core_filter_groups=core_filter_groups,

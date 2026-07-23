@@ -1,9 +1,10 @@
 from datetime import datetime
 from pathlib import Path
+import re
 from zoneinfo import ZoneInfo
 
 from .constants import TAXONOMY_VERSION, WORKFLOW_VERSION
-from .jsonl import append_jsonl, read_json, write_json
+from .jsonl import append_jsonl, read_json, read_jsonl, write_json
 from .models import RecommendedAction, ScenarioStatus, TaskState
 from .paths import new_task_dir, new_task_id
 from .scenarios.registry import all_scenarios
@@ -139,16 +140,68 @@ def save_task(state: TaskState) -> None:
 
 
 def next_material_id(task_dir: Path) -> str:
-    count = count_lines(task_dir / "data" / "materials.jsonl") + 1
-    return f"MAT-{count:06d}"
+    highest = 0
+    for material in read_jsonl(task_dir / "data" / "materials.jsonl"):
+        match = re.fullmatch(
+            r"MAT-(\d+)(?:-\d+)?",
+            str(material.get("material_id") or ""),
+        )
+        if match:
+            highest = max(highest, int(match.group(1)))
+    return f"MAT-{highest + 1:06d}"
 
 
-def record_materials(task_dir: Path, materials: list) -> None:
+def record_materials(task_dir: Path, materials: list) -> list:
+    existing_keys: set[tuple[str, str]] = set()
+    for material in read_jsonl(task_dir / "data" / "materials.jsonl"):
+        source = str(material.get("source_scenario") or "")
+        for key in material_record_keys(material):
+            existing_keys.add((source, key))
+
+    recorded = []
     for material in materials:
+        payload = material.model_dump(mode="json")
+        source = str(payload.get("source_scenario") or "")
+        keys = material_record_keys(payload)
+        if keys and any((source, key) in existing_keys for key in keys):
+            continue
         append_jsonl(
             task_dir / "data" / "materials.jsonl",
-            material.model_dump(mode="json"),
+            payload,
         )
+        recorded.append(material)
+        for key in keys:
+            existing_keys.add((source, key))
+    return recorded
+
+
+def material_record_keys(material: dict) -> set[str]:
+    keys = {
+        str(key).strip().lower()
+        for key in material.get("possible_duplicate_keys") or []
+        if str(key).strip()
+    }
+    if not keys:
+        source_url = str(material.get("source_url") or "").strip().lower()
+        title = " ".join(str(material.get("title") or "").lower().split())
+        if source_url:
+            keys.add(f"url:{source_url}")
+        elif title:
+            keys.add(f"title:{title}")
+    return keys
+
+
+def find_duplicate_material(task_dir: Path, candidate: dict) -> dict | None:
+    source = str(candidate.get("source_scenario") or "")
+    keys = material_record_keys(candidate)
+    if not keys:
+        return None
+    for material in read_jsonl(task_dir / "data" / "materials.jsonl"):
+        if str(material.get("source_scenario") or "") != source:
+            continue
+        if keys.intersection(material_record_keys(material)):
+            return material
+    return None
 
 
 def recommended_next_action(state: TaskState) -> RecommendedAction:

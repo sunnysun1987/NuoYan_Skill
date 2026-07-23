@@ -59,6 +59,12 @@ Playwright 会话状态保存在任务目录下的 `browser_state/<scenario_id>`
 
 `run-browser-workflow` 会把快照保存到 `downloads/browser_workflow/<scenario_id>/snapshots/`，把下载目录限制在 `downloads/browser_workflow/<scenario_id>/downloads/`。弹窗只能通过场景配置中的普通关闭或“稍后关注”等控件关闭，不能点击登录、授权、支付或非查询提交控件。
 
+### PatentHub
+
+PatentHub 使用持久化 Playwright profile 复用登录态。首次运行先打开可见浏览器，由用户手动登录；登录成功后关闭可见会话，再用同一 `profile-scope` 执行无头探测和采集。账号密码不由 CLI 接收或保存。
+
+采集器对页面执行两层校验：先排除“用户登录”“注册登录后可以查看更多专利信息”等登录页，再要求详情页同时包含有效公开号、非占位标题和至少一个真实专利字段。任一校验不通过时不生成 Material，并在 `collection_errors` 中记录 `needs_login` 或采集失败原因。
+
 默认采集应优先尝试无头浏览器，避免打扰研发人员当前桌面。只有在需要用户手动登录、Cloudflare/验证码、机构认证、下载授权确认，或开发排错时，才主动使用 `--headed`。NMPA 的 `edge-cdp` 路线会先尝试 Edge new headless；如果本机 Edge headless/CDP 无法保持可连接状态，则自动降级为最小化 headed Edge，并在结果和日志中记录 `actual_headless=false` 与降级原因。
 
 Chrome 观察结果不是最终材料。只有 CLI 生成的 `materials.jsonl`、`evidence_cards.jsonl`、HTML 报告和 Excel 复核表才是正式产物。

@@ -7,7 +7,12 @@ from typing import Any
 
 from ivd_research.jsonl import append_jsonl
 from ivd_research.models import Material, SourceRun
-from ivd_research.status import count_lines, now_iso, record_materials
+from ivd_research.status import (
+    find_duplicate_material,
+    next_material_id,
+    now_iso,
+    record_materials,
+)
 
 
 LANE_TO_MATERIAL_TYPE = {
@@ -145,10 +150,33 @@ def import_life_science_findings(
         ).encode("utf-8")
     ).hexdigest()[:10]
     source_run_id = f"LSR-{run_digest}"
-    next_index = count_lines(task_dir / "data" / "materials.jsonl") + 1
+    first_material_id = next_material_id(task_dir)
+    next_index = int(first_material_id.split("-", 1)[1])
     materials: list[Material] = []
-    for offset, finding in enumerate(normalized_findings):
-        material_id = f"MAT-{next_index + offset:06d}"
+    duplicate_material_ids: list[str] = []
+    for finding in normalized_findings:
+        duplicate_keys = [
+            key
+            for key in [
+                finding.get("identifier", ""),
+                finding.get("source_url", ""),
+                f"{finding['source_database']}:{finding['entity']}",
+            ]
+            if key
+        ]
+        duplicate = find_duplicate_material(
+            task_dir,
+            {
+                "source_scenario": "life_science_research",
+                "source_url": finding["source_url"],
+                "title": finding["title"],
+                "possible_duplicate_keys": duplicate_keys,
+            },
+        )
+        if duplicate:
+            duplicate_material_ids.append(str(duplicate.get("material_id") or ""))
+            continue
+        material_id = f"MAT-{next_index + len(materials):06d}"
         evidence_lane = finding["evidence_lane"]
         material_type = LANE_TO_MATERIAL_TYPE.get(evidence_lane, "literature")
         text_dir = task_dir / "extracted_text" / "life_science_research"
@@ -188,22 +216,14 @@ def import_life_science_findings(
             extracted_text_status="completed",
             extracted_text_path=relative_text,
             content_snapshot_path=relative_text,
-            possible_duplicate_keys=[
-                key
-                for key in [
-                    finding.get("identifier", ""),
-                    finding.get("source_url", ""),
-                    f"{finding['source_database']}:{finding['entity']}",
-                ]
-                if key
-            ],
+            possible_duplicate_keys=duplicate_keys,
             source_site_id="life_science_research",
             source_name="Codex life-science-research 插件",
             evidence_lane=evidence_lane,
             source_run_id=source_run_id,
         )
         materials.append(material)
-    record_materials(task_dir, materials)
+    materials = record_materials(task_dir, materials)
     source_run = SourceRun(
         source_run_id=source_run_id,
         task_id=task_id,
@@ -212,7 +232,7 @@ def import_life_science_findings(
         query=query or ";".join(sorted({item["query"] for item in normalized_findings if item["query"]})),
         plugin_name=plugin_name,
         skill_name=skill_name,
-        status="completed" if materials else "no_results",
+        status="completed" if materials or duplicate_material_ids else "no_results",
         imported_material_ids=[item.material_id for item in materials],
         collection_time=now_iso(),
     )
@@ -225,12 +245,13 @@ def import_life_science_findings(
         if scenario is not None:
             scenario.status = source_run.status
             scenario.material_count += len(materials)
-            if not materials:
+            if source_run.status != "completed":
                 scenario.failure_count += 1
             database_count = len({item["source_database"] for item in normalized_findings})
             lane_count = len({item["evidence_lane"] for item in normalized_findings})
             scenario.last_message = (
-                f"通过 life-science-research 插件桥接导入 {len(materials)} 条材料，"
+                f"通过 life-science-research 插件桥接新增 {len(materials)} 条材料，"
+                f"识别重复 {len(duplicate_material_ids)} 条，"
                 f"覆盖 {database_count} 个数据库、{lane_count} 个证据通道。"
             )
             save_task(state)
@@ -240,4 +261,6 @@ def import_life_science_findings(
         "source_run_id": source_run_id,
         "imported_count": len(materials),
         "material_ids": [item.material_id for item in materials],
+        "duplicate_count": len(duplicate_material_ids),
+        "duplicate_material_ids": duplicate_material_ids,
     }

@@ -321,12 +321,10 @@ def build_standard_delivery(task_dir: Path) -> dict:
 
     from .reports import build_standard_report
     from .knowledge.literature_graph import build_literature_knowledge
-    from .translation import translate_materials, translation_status
+    from .translation import translation_status
 
     knowledge_result = build_literature_knowledge(task_dir)
-    pre_translation_result = translate_materials(task_dir)
     translation_result = translation_status(task_dir)
-    translation_result["pre_delivery_generation"] = pre_translation_result
 
     report_result = build_standard_report(task_dir, output=paths["report"])
     report_ok = Path(report_result["report_path"]).exists()
@@ -756,8 +754,15 @@ def verify_package(task_dir: Path) -> dict:
         or not network_unresolved_scenarios
     )
     source_quality_ready = bool(source_quality.get("ready", False))
+    v21_assets_ready = (
+        source_sites_path.exists()
+        and literature_graph_path.exists()
+        and topic_index_path.exists()
+    )
     business_ready = (
-        search_profile_ready
+        delivery_artifacts_ready
+        and v21_assets_ready
+        and search_profile_ready
         and final_review_ready
         and scenario_coverage_ready
         and fallback_ready
@@ -778,11 +783,7 @@ def verify_package(task_dir: Path) -> dict:
         "missing": missing,
         "warnings": warnings,
         "delivery_artifacts_ready": delivery_artifacts_ready,
-        "v21_assets_ready": (
-            source_sites_path.exists()
-            and literature_graph_path.exists()
-            and topic_index_path.exists()
-        ),
+        "v21_assets_ready": v21_assets_ready,
         "final_review_ready": final_review_ready,
         "scenario_coverage_ready": scenario_coverage_ready,
         "search_profile_ready": search_profile_ready,

@@ -98,7 +98,7 @@ Professional Chinese reading support is built into this repository as a delivery
 
 - Recommended offline engine: [Argos Translate](https://github.com/argosopentech/argos-translate), an open-source offline translation library. Install `argostranslate` and import an English→Chinese model once on the standard R&D workstation image.
 - `nuoyan setup-translation-engine --provider argos --json` installs/checks the optional Argos Python dependency and attempts to install the English→Chinese offline model. Use `--skip-model` when IT wants to install model files separately.
-- `nuoyan build-standard-delivery --task-id <task_id> --json` attempts `translate-materials` before rendering the HTML report, so English titles, structured abstracts and key excerpts are cached in `data/translations.jsonl`.
+- Translation is an explicit pre-delivery step: run `nuoyan translation-status --task-id <task_id> --json`, then `nuoyan translate-materials --task-id <task_id> --json` when an engine is ready. Report and delivery rendering only read `data/translations.jsonl`; they never start translation or network calls.
 - `nuoyan translation-status --task-id <task_id> --json` is an internal agent/maintainer check, not a user-facing R&D operation.
 - HTML reports prioritize Chinese titles and “专业中文阅读”; original English remains visible for traceability.
 - Evidence excerpts are rendered as reading blocks. Source, query, title, authors, journal/source and Abstract text are separated, and Chinese reading text is split into short paragraphs for review.
@@ -113,9 +113,11 @@ The final verification command reports whether the package is ready for business
 nuoyan verify-package --task-id <task_id> --json
 ```
 
-Key fields include `search_profile_ready`, `scenario_coverage_ready`, `fallback_ready`, `network_ready`, `v21_assets_ready`, `final_review_ready` and `business_ready`.
+Core fields are `delivery_artifacts_ready`, `v21_assets_ready`, `final_review_ready`, `scenario_coverage_ready`, `search_profile_ready`, `fallback_ready`, `network_ready`, `source_quality_ready` and `business_ready`.
 
 `business_ready=true` requires more than generated files. The package must have confirmed search scope, complete source coverage or documented fallback, V2.1 source-site and knowledge assets, reviewed evidence cards, and a valid standard delivery folder.
+
+V2.1.10 aligns the skill instructions with the registered `nuoyan` CLI, makes report and delivery rendering translation-cache-only, fails closed when optional function signatures cannot be inspected, preserves partial query failures as `completed_with_warnings`, and makes delivery artifacts plus V2.1 knowledge assets explicit `business_ready` gates. CLI references, scenario documentation, report rules and the nine verification fields now share one contract.
 
 V2.1.9 removes analyte-by-analyte project patches from the common execution path. Confirmed project fields now control project identity, report subject labels, screening tags and local topic indexes; unrelated literature titles cannot reclassify the project. NMPA and PatentHub use short layered target/product/method queries instead of the full project profile blob. The cross-journal Yiigle source now uses its public search API before the legacy web-page fallback, and source-quality auditing detects contradictions between a no-result aggregate channel and successful specialist Chinese journals.
 

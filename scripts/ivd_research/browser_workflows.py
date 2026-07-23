@@ -94,6 +94,9 @@ def classify_browser_page(
     if scenario_id == "patenthub_patents" and (
         "reason=blocked" in normalized
         or "/user/login" in normalized
+        or "注册登录后可以查看更多专利信息" in text
+        or "登录后可以查看更多专利信息" in text
+        or "用户登录" in title
         or ("用户登录" in text and "密码" in text)
     ):
         return {

@@ -90,3 +90,29 @@ def test_life_science_bridge_updates_task_scenario_status(tmp_path: Path):
     assert scenario["status"] == "completed"
     assert scenario["material_count"] == 2
     assert "覆盖 2 个数据库、2 个证据通道" in scenario["last_message"]
+
+
+def test_life_science_repeat_import_does_not_downgrade_completed_status(tmp_path: Path):
+    state = init_task("p-tau181 AD 血液标志物", tmp_path)
+    task_dir = Path(state.task_dir)
+    findings = [
+        {
+            "source_database": "UniProt",
+            "evidence_lane": "protein",
+            "entity": "MAPT",
+            "result_summary": "Tau protein evidence.",
+            "identifier": "P10636",
+        }
+    ]
+
+    first = import_life_science_findings(state.task_id, task_dir, findings)
+    repeated = import_life_science_findings(state.task_id, task_dir, findings)
+
+    task = __import__("json").loads((task_dir / "task.json").read_text(encoding="utf-8"))
+    scenario = task["scenario_statuses"]["life_science_research"]
+    source_runs = list(read_jsonl(task_dir / "data" / "source_runs.jsonl"))
+    assert first["imported_count"] == 1
+    assert repeated["imported_count"] == 0
+    assert scenario["status"] == "completed"
+    assert scenario["failure_count"] == 0
+    assert source_runs[-1]["status"] == "completed"

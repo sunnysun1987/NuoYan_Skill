@@ -470,11 +470,12 @@ def collect_patenthub_visible_results(
     search_snapshot: str,
     page_limit: int,
     start_index: int,
-) -> tuple[list[dict[str, Any]], list[str]]:
+) -> tuple[list[dict[str, Any]], list[str], list[dict[str, Any]]]:
     paths = browser_workflow_paths(task_dir, "patenthub_patents")
     entries = parse_patenthub_result_list(search_html, search_url)[:page_limit]
     materials: list[dict[str, Any]] = []
     detail_snapshots: list[str] = []
+    collection_errors: list[dict[str, Any]] = []
     for index, entry in enumerate(entries, start=start_index):
         material_id = f"MAT-{index:06d}"
         page = context.new_page()
@@ -486,6 +487,16 @@ def collect_patenthub_visible_results(
             detail_snapshot = relative_to_task(task_dir, detail_snapshot_path)
             detail_snapshots.append(detail_snapshot)
             detail = parse_patenthub_detail(detail_html, entry["detail_url"])
+            if not detail.get("is_valid_patent_detail"):
+                collection_errors.append(
+                    {
+                        "stage": "patenthub_detail",
+                        "status": detail.get("page_status", FailureType.COLLECTION_FAILED.value),
+                        "detail_url": entry["detail_url"],
+                        "reason": "PatentHub detail page did not expose verified patent fields.",
+                    }
+                )
+                continue
             text_path = paths["base_dir"] / "extracted_text" / f"{material_id}.txt"
             text_path.parent.mkdir(parents=True, exist_ok=True)
             fallback_text = ""
@@ -511,12 +522,56 @@ def collect_patenthub_visible_results(
                 extracted_text_path=relative_to_task(task_dir, text_path),
             )
             materials.append(material.model_dump(mode="json"))
+        except Exception as exc:
+            collection_errors.append(
+                {
+                    "stage": "patenthub_detail",
+                    "status": FailureType.COLLECTION_FAILED.value,
+                    "detail_url": entry["detail_url"],
+                    "reason": f"{type(exc).__name__}: {exc}",
+                }
+            )
         finally:
             try:
                 page.close()
             except Exception:
                 pass
-    return materials, detail_snapshots
+    return materials, detail_snapshots, collection_errors
+
+
+def patenthub_collection_outcome(
+    *,
+    entry_count: int,
+    materials: list[Any],
+    collection_errors: list[dict[str, Any]],
+) -> tuple[str, str]:
+    if materials:
+        failed_count = len(collection_errors)
+        suffix = f"；另有 {failed_count} 条详情采集失败。" if failed_count else "。"
+        return "completed", f"专利汇已采集 {len(materials)} 条可见专利基本信息{suffix}"
+    if any(
+        error.get("status") == FailureType.NEEDS_LOGIN.value
+        for error in collection_errors
+    ):
+        return FailureType.NEEDS_LOGIN.value, "专利汇登录状态未就绪。"
+    if any(
+        error.get("status")
+        in {
+            FailureType.COLLECTION_FAILED.value,
+            FailureType.PARSE_FAILED.value,
+        }
+        for error in collection_errors
+    ):
+        return (
+            FailureType.COLLECTION_FAILED.value,
+            "专利汇搜索结果可见，但详情页采集失败；不得解释为无结果。",
+        )
+    if entry_count:
+        return (
+            FailureType.NO_VALID_MATERIALS.value,
+            "专利汇搜索结果可见，但详情页未解析出可验证专利字段。",
+        )
+    return FailureType.NO_RESULTS.value, "专利汇搜索页未发现专利结果。"
 
 
 def collect_nmpa_visible_results(
@@ -1225,6 +1280,10 @@ def run_browser_workflow(
             else "CMDE 搜索结果页未采集到【审评报告】、【指导原则文本库】或【征求意见】匹配材料。"
         )
     if scenario_id == "patenthub_patents" and status == "search_results":
+        patenthub_entry_count = min(
+            len(parse_patenthub_result_list(html, final_url)),
+            page_limit,
+        )
         try:
             with sync_playwright() as p:
                 context = p.chromium.launch_persistent_context(
@@ -1233,7 +1292,11 @@ def run_browser_workflow(
                     accept_downloads=True,
                     downloads_path=str(paths["download_dir"]),
                 )
-                materials, detail_snapshot_paths = collect_patenthub_visible_results(
+                (
+                    materials,
+                    detail_snapshot_paths,
+                    patenthub_collection_errors,
+                ) = collect_patenthub_visible_results(
                     task_dir=task_dir,
                     task_id=task_id,
                     context=context,
@@ -1244,11 +1307,25 @@ def run_browser_workflow(
                     page_limit=page_limit,
                     start_index=material_start_index,
                 )
+                collection_errors.extend(patenthub_collection_errors)
                 context.close()
-            if materials:
-                status = "completed"
-                reason_zh = f"专利汇已采集 {len(materials)} 条可见专利基本信息。"
+            status, reason_zh = patenthub_collection_outcome(
+                entry_count=patenthub_entry_count,
+                materials=materials,
+                collection_errors=patenthub_collection_errors,
+            )
+            if status == FailureType.NEEDS_LOGIN.value:
+                reason_zh = workflow["login_guidance_zh"]
         except Exception as exc:
+            status = FailureType.COLLECTION_FAILED.value
+            reason_zh = "专利汇搜索结果可见，但详情采集流程异常；不得解释为无结果。"
+            collection_errors.append(
+                {
+                    "stage": "patenthub_detail_collection",
+                    "status": status,
+                    "reason": f"{type(exc).__name__}: {exc}",
+                }
+            )
             append_jsonl(
                 task_dir / "logs" / "debug.jsonl",
                 {

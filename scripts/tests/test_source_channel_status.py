@@ -5,7 +5,12 @@ import types
 
 from typer.testing import CliRunner
 
-from ivd_research.cli import app
+from ivd_research.cli import (
+    _merge_plan_results,
+    _supports_kwarg,
+    app,
+    run_delivery_pipeline_command,
+)
 from ivd_research.confirmations import update_confirmations
 from ivd_research.jsonl import read_jsonl
 from ivd_research.models import Material
@@ -34,6 +39,50 @@ FULL_CONFIRMATIONS = {
     "competitor_scope": "NMPA 已注册同类产品",
     "patent_scope": "全球",
 }
+
+
+def test_supports_kwarg_fails_closed_when_signature_is_unavailable(monkeypatch):
+    monkeypatch.setattr("ivd_research.cli.inspect.signature", lambda func: (_ for _ in ()).throw(ValueError("no signature")))
+
+    assert _supports_kwarg(object(), "headless") is False
+
+
+def test_delivery_pipeline_defaults_to_headless():
+    import inspect
+
+    option = inspect.signature(run_delivery_pipeline_command).parameters["headless"].default
+
+    assert option.default is True
+
+
+def test_merge_plan_results_preserves_partial_failure_status():
+    material = Material(
+        material_id="MAT-000001",
+        task_id="TASK",
+        source_scenario="pubmed_literature",
+        material_type="literature",
+        title="A useful result",
+        collection_time="2026-07-23T00:00:00+08:00",
+    )
+    merged = _merge_plan_results(
+        [
+            ScenarioResult(status="completed", materials=[material], message_zh="命中核心词"),
+            ScenarioResult(
+                status=FailureType.COLLECTION_FAILED.value,
+                failure_type=FailureType.COLLECTION_FAILED,
+                message_zh="方法学扩展查询失败",
+                collection_errors=[{"status": "collection_failed", "reason": "timeout"}],
+            ),
+        ],
+        [
+            {"query_role": "core", "status": "completed"},
+            {"query_role": "method", "status": "collection_failed"},
+        ],
+    )
+
+    assert merged is not None
+    assert merged.status == "completed_with_warnings"
+    assert merged.collection_errors == [{"status": "collection_failed", "reason": "timeout"}]
 
 
 def _hcg_confirmations() -> dict:

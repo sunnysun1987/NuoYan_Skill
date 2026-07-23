@@ -802,6 +802,7 @@ def scenario_query_plans(state: Any) -> dict[str, list[ScenarioQueryPlan]]:
                 params={
                     "query_role": "yiigle_fulltext_core_expression",
                     "base_keyword": (_core_chinese_queries(state) or [broad])[0],
+                    "retmax": literature_profile["retmax"],
                     "literature_types": DEFAULT_LITERATURE_TYPES,
                     "literature_date_range": literature_date_range,
                 },
@@ -811,6 +812,7 @@ def scenario_query_plans(state: Any) -> dict[str, list[ScenarioQueryPlan]]:
                 params={
                     "query_role": "yiigle_fulltext_expression",
                     "base_keyword": broad,
+                    "retmax": literature_profile["retmax"],
                     "literature_types": DEFAULT_LITERATURE_TYPES,
                     "literature_date_range": literature_date_range,
                 },

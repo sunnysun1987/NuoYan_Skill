@@ -7,22 +7,28 @@ CLI 命令由 agent 调用：
 - `nuoyan init-task --topic <topic> --json`
 - `nuoyan show-status --task-id <task_id> --json`
 - `nuoyan update-confirmations --task-id <task_id> --values-json <json> --json`
+- `nuoyan source-quality --task-id <task_id> --json`
 - `nuoyan run-scenario --task-id <task_id> --scenario <scenario_id> --json`
 - `nuoyan run-full-pipeline --task-id <task_id> [--network-preflight|--skip-network-preflight] --json`
 - `nuoyan run-delivery-pipeline --task-id <task_id> [--network-preflight|--skip-network-preflight] --json`
 - `nuoyan import-local --task-id <task_id> --path <path> --json`
 - `nuoyan import-finding --task-id <task_id> --title <title> --source <source> --source-url <url> --content <text> --material-type <type> --json`
 - `nuoyan import-life-science-findings --task-id <task_id> --findings-json-file <json> --query <query> --json`
+- `nuoyan life-science-plan --task-id <task_id> --json`
 - `nuoyan import-literature-table --task-id <task_id> --path <csv_or_xlsx> --json`
 - `nuoyan source-sites --json`
 - `nuoyan build-knowledge --task-id <task_id> --json`
 - `nuoyan create-analysis-requests --task-id <task_id> --json`
-- `nuoyan validate-staged --task-id <task_id> --type evidence-card --json`
-- `nuoyan commit-staged --task-id <task_id> --type evidence-card --json`
+- `nuoyan validate-staged --task-id <task_id> --type evidence-card|report-section --json`
+- `nuoyan commit-staged --task-id <task_id> --type evidence-card|report-section --json`
+- `nuoyan generate-evidence-cards --task-id <task_id> --json`
 - `nuoyan export-review --task-id <task_id> --json`
 - `nuoyan import-review --task-id <task_id> --xlsx <path> --json`
 - `nuoyan build-report --task-id <task_id> --type materials --json`
 - `nuoyan build-report --task-id <task_id> --type feasibility --json`
+- `nuoyan translate-materials --task-id <task_id> --json`
+- `nuoyan translation-status --task-id <task_id> --json`
+- `nuoyan setup-translation-engine --provider argos|libretranslate|openai --json`
 - `nuoyan build-standard-delivery --task-id <task_id> --json`
 - `nuoyan verify-package --task-id <task_id> --json`
 - `nuoyan package-task --task-id <task_id> --json`
@@ -43,7 +49,8 @@ CLI 命令由 agent 调用：
 - `doctor --network` 用于正式公网采集前的网络体检，必须区分 Python DNS、Python HTTPS 和系统 curl 通道。
 - `run-full-pipeline` 和 `run-delivery-pipeline` 在未补全检索画像时不得启动正式采集；默认开启网络预检并写入 `network_preflight` 日志。
 - `build-standard-delivery` 可生成草稿交付，但若检索画像缺失，会写入日志并由 `verify-package` 标记 `search_profile_ready=false`。
-- `verify-package` 必须输出 `search_profile_ready`、`scenario_coverage_ready`、`fallback_ready`、`network_ready`、`v21_assets_ready`、`final_review_ready`、`business_ready`。最终对外回复必须解释这些字段。
+- `verify-package` 必须输出 9 个核心门禁字段：`delivery_artifacts_ready`、`v21_assets_ready`、`final_review_ready`、`scenario_coverage_ready`、`search_profile_ready`、`fallback_ready`、`network_ready`、`source_quality_ready`、`business_ready`。
+- `business_ready` 由上述门禁共同约束；最终回复仍必须单独解释 9 个字段，避免把“文件已生成”误写为“业务已就绪”。
 - 采集失败后，agent 必须使用 `import-finding`、浏览器 workflow、重试或用户材料导入等动作形成兜底记录；缺少兜底记录时 `fallback_ready=false`。
 - 标准交付前必须生成 V2.1 资产：`source_sites_v21.json`、`knowledge/metric_facts.jsonl`、`knowledge/literature_graph.json`、`knowledge/topic_index.json`。缺失时 `v21_assets_ready=false`。
 - life-science-research 插件结果必须通过 `import-life-science-findings` 或等价桥接进入材料管线；不得只写在聊天摘要或报告段落中。

@@ -111,7 +111,7 @@ def import_local(task_id: str, task_dir: Path, source: Path) -> dict:
         )
         materials.append(material)
 
-    record_materials(task_dir, materials)
+    materials = record_materials(task_dir, materials)
     return {
         "imported_count": len(materials),
         "materials": [material.model_dump(mode="json") for material in materials],

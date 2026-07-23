@@ -3,6 +3,7 @@ from pathlib import Path
 from ivd_research.jsonl import append_jsonl
 from ivd_research.translation import (
     TranslationEngine,
+    is_mostly_english,
     setup_translation_engine,
     text_hash,
     translate_sections,
@@ -173,9 +174,29 @@ def test_translation_status_accepts_libretranslate_intranet_route(tmp_path: Path
     assert status["libretranslate_configured"] is True
 
 
+def test_auto_translation_does_not_use_cloud_key_without_explicit_provider(monkeypatch):
+    for key in TRANSLATION_ENV_KEYS:
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "personal-key-must-not-be-used-implicitly")
+    engine = TranslationEngine()
+    monkeypatch.setattr(engine, "argos_ready", lambda: False)
+    monkeypatch.setattr(engine, "libretranslate_ready", lambda: False)
+
+    assert engine.active_provider() == ""
+
+    explicit_engine = TranslationEngine(provider="openai")
+    monkeypatch.setattr(explicit_engine, "argos_ready", lambda: False)
+    monkeypatch.setattr(explicit_engine, "libretranslate_ready", lambda: False)
+    assert explicit_engine.active_provider() == "openai"
+
+
 def test_setup_translation_engine_can_skip_model_download():
     result = setup_translation_engine(provider="argos", install_model=False)
 
     assert result["provider"] == "argos"
     assert result["status"] in {"ready", "package_installed_model_missing", "not_installed"}
     assert "next_step_zh" in result
+
+
+def test_short_english_title_can_use_title_threshold():
+    assert is_mostly_english("AD biomarker panel", min_ascii_letters=8)

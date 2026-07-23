@@ -2,6 +2,8 @@ import json
 import html
 import re
 import subprocess
+from copy import deepcopy
+from math import ceil
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +21,8 @@ SUBJECT_ZH = "中华医学期刊全文数据库"
 API_URL = "https://www.yiigle.com/apiVue/search/searchList"
 DETAIL_URL_TEMPLATE = "https://rs.yiigle.com/cmaid/{art_id}"
 DEFAULT_RETMAX = 20
+MAX_RETMAX = 2000
+MAX_PAGE_SIZE = 200
 
 
 def adapter():
@@ -40,7 +44,11 @@ def collect(task_id, task_dir, params):
 
     retmax = _safe_int(params.get("retmax"), DEFAULT_RETMAX)
     try:
-        payload, raw_text = yiigle_api_search(keyword, retmax=retmax)
+        payload, raw_text = yiigle_api_search(
+            keyword,
+            retmax=retmax,
+            date_range=params.get("literature_date_range"),
+        )
         result = parse_yiigle_api_result(
             payload,
             task_id=task_id,
@@ -50,6 +58,7 @@ def collect(task_id, task_dir, params):
             keyword=keyword,
             raw_text=raw_text,
             date_range=params.get("literature_date_range"),
+            retmax=retmax,
         )
         if result.status != "collection_failed":
             return result
@@ -67,13 +76,82 @@ def collect(task_id, task_dir, params):
     )
 
 
-def yiigle_api_search(keyword: str, *, retmax: int = DEFAULT_RETMAX) -> tuple[dict[str, Any], str]:
+def yiigle_api_search(
+    keyword: str,
+    *,
+    retmax: int = DEFAULT_RETMAX,
+    date_range: Any = None,
+) -> tuple[dict[str, Any], str]:
+    page_size = min(MAX_PAGE_SIZE, max(50, retmax))
+    first_payload: dict[str, Any] | None = None
+    all_rows: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    search_total = 0
+    page = 1
+    effective_page_size = 0
+
+    while True:
+        payload = _request_yiigle_page(keyword, page=page, page_size=page_size)
+        if first_payload is None:
+            first_payload = payload
+        if payload.get("code") != 200:
+            return payload, json.dumps(payload, ensure_ascii=False)
+        result = (payload.get("data") or {}).get("result") or {}
+        rows = result.get("infos") or []
+        if not isinstance(rows, list):
+            rows = []
+        if rows and not effective_page_size:
+            effective_page_size = len(rows)
+        search_total = int(result.get("searchTotal") or search_total or 0)
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            key = str(row.get("artId") or row.get("artDoi") or row.get("artTitle") or "")
+            if key and key in seen:
+                continue
+            if key:
+                seen.add(key)
+            all_rows.append(row)
+
+        in_range_count = sum(_within_date_range(row, date_range) for row in all_rows)
+        exhausted = not rows or len(all_rows) >= search_total
+        if in_range_count >= retmax or exhausted:
+            break
+        total_pages = (
+            ceil(search_total / effective_page_size)
+            if search_total and effective_page_size
+            else page
+        )
+        if page >= total_pages:
+            break
+        page += 1
+
+    aggregated = deepcopy(first_payload or {"code": 200, "data": {"result": {}}})
+    result = (aggregated.setdefault("data", {}).setdefault("result", {}))
+    result["searchTotal"] = search_total
+    result["infos"] = all_rows
+    range_count = sum(_within_date_range(row, date_range) for row in all_rows)
+    result["retrieval"] = {
+        "requested_retmax": retmax,
+        "page_size": page_size,
+        "effective_page_size": effective_page_size,
+        "pages_fetched": page,
+        "records_scanned": len(all_rows),
+        "date_range_matches_scanned": range_count,
+        "date_range_total": range_count if len(all_rows) >= search_total else None,
+        "official_search_total_all_years": search_total,
+    }
+    raw_text = json.dumps(aggregated, ensure_ascii=False)
+    return aggregated, raw_text
+
+
+def _request_yiigle_page(keyword: str, *, page: int, page_size: int) -> dict[str, Any]:
     body = {
         "type": "",
         "sortField": "",
-        "page": 1,
+        "page": page,
         "searchType": "pt",
-        "pageSize": retmax,
+        "pageSize": page_size,
         "queryString": keyword,
         "query": "",
         "searchText": keyword,
@@ -91,7 +169,7 @@ def yiigle_api_search(keyword: str, *, retmax: int = DEFAULT_RETMAX) -> tuple[di
         with httpx.Client(timeout=30.0, follow_redirects=True) as client:
             response = client.post(API_URL, json=body, headers=headers)
         response.raise_for_status()
-        return response.json(), response.text
+        return response.json()
     except Exception:
         completed = subprocess.run(
             [
@@ -118,7 +196,7 @@ def yiigle_api_search(keyword: str, *, retmax: int = DEFAULT_RETMAX) -> tuple[di
         )
         if completed.returncode != 0:
             raise RuntimeError((completed.stderr or "").strip() or f"curl exit {completed.returncode}")
-        return json.loads(completed.stdout), completed.stdout
+        return json.loads(completed.stdout)
 
 
 def parse_yiigle_api_result(
@@ -131,6 +209,7 @@ def parse_yiigle_api_result(
     keyword: str,
     raw_text: str,
     date_range: Any = None,
+    retmax: int = DEFAULT_RETMAX,
 ) -> ScenarioResult:
     if payload.get("code") != 200:
         return ScenarioResult(
@@ -142,8 +221,13 @@ def parse_yiigle_api_result(
     rows = result.get("infos") or []
     if not isinstance(rows, list):
         rows = []
-    rows = [row for row in rows if isinstance(row, dict) and _within_date_range(row, date_range)]
+    rows = [
+        row
+        for row in rows
+        if isinstance(row, dict) and _within_date_range(row, date_range)
+    ][:retmax]
     search_total = int(result.get("searchTotal") or 0)
+    retrieval = result.get("retrieval") or {}
     if not rows:
         return ScenarioResult(
             status="no_results",
@@ -196,7 +280,7 @@ def parse_yiigle_api_result(
                 },
                 collection_time=now_iso(),
                 adapter_id=SCENARIO_ID,
-                adapter_version="0.5.0",
+                adapter_version="0.6.0",
                 raw_fields={
                     "source_database": SUBJECT_ZH,
                     "art_id": art_id,
@@ -213,6 +297,13 @@ def parse_yiigle_api_result(
                     "start_page": row.get("startPage") or "",
                     "end_page": row.get("endPage") or "",
                     "search_total": search_total,
+                    "records_scanned": retrieval.get("records_scanned", len(rows)),
+                    "date_range_matches_scanned": retrieval.get(
+                        "date_range_matches_scanned", len(rows)
+                    ),
+                    "date_range_total": retrieval.get("date_range_total"),
+                    "retrieval_limit": retmax,
+                    "pages_fetched": retrieval.get("pages_fetched", 1),
                     "fulltext_status": "metadata_and_abstract",
                     "pdf_status": "not_checked",
                 },
@@ -228,8 +319,10 @@ def parse_yiigle_api_result(
         status="completed",
         materials=materials,
         message_zh=(
-            f"{SUBJECT_ZH} 官方检索接口命中 {search_total} 条，"
-            f"当前批次解析并保存 {len(materials)} 条题录与摘要。"
+            f"{SUBJECT_ZH} 官方检索接口全时间范围命中 {search_total} 条；"
+            f"当前扫描 {retrieval.get('records_scanned', len(rows))} 条，"
+            f"确认时间范围内命中至少 {retrieval.get('date_range_matches_scanned', len(rows))} 条，"
+            f"按本次召回上限保存 {len(materials)} 条题录与摘要。"
         ),
     )
 
@@ -239,18 +332,22 @@ def _within_date_range(row: dict[str, Any], date_range: Any) -> bool:
         return True
     start = str(date_range.get("start") or date_range.get("from") or "")[:4]
     end = str(date_range.get("end") or date_range.get("to") or "")[:4]
-    year = str(row.get("artPubYear") or "")[:4]
-    if not year.isdigit():
+    if not start and not end:
         return True
+    year = str(row.get("artPubYear") or row.get("artPubDate") or "")[:4]
+    if not year.isdigit():
+        return False
     return (not start or year >= start) and (not end or year <= end)
 
 
 def _safe_int(value: Any, default: int) -> int:
+    if isinstance(value, str) and value.strip().lower() in {"all", "全部", "full", "unlimited"}:
+        return MAX_RETMAX
     try:
         parsed = int(value)
     except (TypeError, ValueError):
         parsed = default
-    return max(1, min(parsed, 50))
+    return max(1, min(parsed, MAX_RETMAX))
 
 
 def _plain_text(value: Any, *, preserve_lines: bool = False) -> str:

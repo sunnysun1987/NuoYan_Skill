@@ -58,13 +58,13 @@ PROVIDER_LABEL_ZH = {
 }
 
 
-def is_mostly_english(text: str) -> bool:
+def is_mostly_english(text: str, *, min_ascii_letters: int = 20) -> bool:
     text = str(text or "")
     if not text.strip():
         return False
     ascii_letters = len(re.findall(r"[A-Za-z]", text))
     cjk = len(re.findall(r"[\u4e00-\u9fff]", text))
-    return ascii_letters >= 20 and ascii_letters > cjk * 2
+    return ascii_letters >= min_ascii_letters and ascii_letters > cjk * 2
 
 
 def section_label_zh(label: str) -> str:
@@ -282,8 +282,6 @@ class TranslationEngine:
                 return "argos"
             if self.libretranslate_ready():
                 return "libretranslate"
-            if self.openai_ready():
-                return "openai"
             return ""
         if provider == "argos":
             return "argos" if self.argos_ready() else ""
@@ -546,7 +544,7 @@ def translate_materials(
         title = str(material.get("title") or "")
         raw = material.get("raw_fields") or {}
         title_text = " ".join(title.split())
-        if title_text and is_mostly_english(title_text):
+        if title_text and is_mostly_english(title_text, min_ascii_letters=8):
             digest = text_hash(title_text)
             field = "title"
             if not force and (material_id, field, digest) in existing:
