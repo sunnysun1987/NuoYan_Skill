@@ -497,11 +497,23 @@ def show_status_command(
 @app.command("doctor")
 def doctor_command(
     output_root: Optional[Path] = typer.Option(None, "--output-root"),
+    profile: str = typer.Option(
+        "core",
+        "--profile",
+        help="体检档位：core 检查基础 CLI，standard 检查标准调研环境。",
+    ),
     network: bool = typer.Option(False, "--network", help="检查 PubMed/OpenAlex 等公网采集通道。"),
+    strict: bool = typer.Option(False, "--strict", help="体检不通过时返回非零退出码，供安装验收使用。"),
     json_output: bool = typer.Option(False, "--json"),
 ) -> None:
     root = output_root or default_output_root()
-    emit(run_doctor(root, include_network=network), json_output)
+    try:
+        result = run_doctor(root, include_network=network, profile=profile)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc), param_hint="--profile") from exc
+    emit(result, json_output)
+    if strict and not result["ok"]:
+        raise typer.Exit(code=1)
 
 
 @app.command("update-confirmations")
