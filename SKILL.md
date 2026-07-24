@@ -106,6 +106,8 @@ nuoyan verify-package --task-id <task_id> --json
 
 优先使用 `scripts/ivd_research` 下的 CLI 和工具函数处理可重复、可验证的文件生成任务。CLI 是 agent 的内部工具，用户只需要接收结果文件和结论摘要。
 
+Windows 标准安装使用 Skill 目录内的独立运行时。Agent 必须优先调用 `.venv\Scripts\nuoyan.exe`，不得假定系统 PATH 中的 `nuoyan`、Python 包、Playwright 浏览器或翻译模型已经存在。正式调研前运行 `.venv\Scripts\nuoyan.exe doctor --profile standard --network --strict --json`；未达到 `standard_ready=true` 时，先报告实际缺失项并完成环境修复，不得以聊天回答替代标准流水线输出。安装和更新方式见 `docs/windows-standard-environment.md`。
+
 CLI 或脚本失败时，不要掩盖失败，不要编造结果。应说明失败步骤、已完成内容、未完成内容、错误信息摘要和可继续的最小下一步。
 
 当 HTTP/API 采集失败、页面需要登录态或页面结构未知时，agent 可以使用 Codex Chrome 观察页面。但 Chrome 观察只用于诊断和适配器开发：

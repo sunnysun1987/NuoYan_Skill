@@ -28,6 +28,12 @@ Optional capabilities:
 python3 -m pip install -e ".[browser,pdf,ocr,dev]"
 ```
 
+### Windows company workstations
+
+Windows business workstations should not reuse an arbitrary system Python environment. IT or Codex should run the repository's `install-windows.ps1`, which installs the skill at `%USERPROFILE%\.codex\skills\nuoyan-skill-v2`, creates a private `.venv`, installs the browser/PDF/translation components, installs Chromium, checks the Argos English-to-Chinese model, and runs the strict standard-environment doctor.
+
+Business users do not run shell commands. Give Codex the copyable Chinese request and follow the app-plugin steps in [Windows 标准调研环境安装与使用](docs/windows-standard-environment.md).
+
 ## Quick Check
 
 Run a dependency and output-path check:
@@ -41,6 +47,14 @@ Before formal public-source collection, run the network preflight:
 ```bash
 nuoyan doctor --network --json
 ```
+
+For a formal research workstation, use the standard profile and strict exit code:
+
+```bash
+nuoyan doctor --profile standard --network --strict --json
+```
+
+This profile checks the actual runtime source and version, legacy distribution conflicts, Playwright Chromium startup, PDF tools, the Argos English-to-Chinese model, enabled Codex Life Science Research/Browser/Chrome plugins, and public-source connectivity. A cached plugin is not treated as enabled.
 
 The network preflight separates Python DNS, Python HTTPS and system curl status for PubMed/NCBI and OpenAlex. DNS or proxy failures must be treated as collection failures, not as evidence absence.
 
@@ -116,6 +130,8 @@ nuoyan verify-package --task-id <task_id> --json
 Core fields are `delivery_artifacts_ready`, `v21_assets_ready`, `final_review_ready`, `scenario_coverage_ready`, `search_profile_ready`, `fallback_ready`, `network_ready`, `source_quality_ready` and `business_ready`.
 
 `business_ready=true` requires more than generated files. The package must have confirmed search scope, complete source coverage or documented fallback, V2.1 source-site and knowledge assets, reviewed evidence cards, and a valid standard delivery folder.
+
+V2.1.12 adds a Windows standard-environment installer and a strict `doctor --profile standard` gate. The gate checks the actual runtime path and version, conflicting legacy distributions, a launchable Playwright Chromium, the PDF toolchain, the Argos English-to-Chinese model, enabled Codex Life Science Research/Browser/Chrome plugins, and live public-source connectivity. Plugin cache presence alone no longer counts as an enabled capability.
 
 V2.1.11 adds an opt-in real-network acceptance test for OpenAlex and PubMed, allows reviewed staged evidence cards to replace automatic drafts with the same ID, honors explicitly small `quick_scan` retrieval limits, and tightens metric extraction so engineering sensitivity, citation numbers and lowercase conjunctions are not presented as diagnostic facts. LoD and complete cutoff ranges are now captured as structured metric facts.
 

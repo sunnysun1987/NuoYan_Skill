@@ -63,8 +63,11 @@ def codex_plugin_check(
     cache_root = home / "plugins" / "cache" / provider / plugin_name
     cached_manifests = sorted(cache_root.glob("*/.codex-plugin/plugin.json"))
     cached = bool(cached_manifests)
-    if enabled:
+    ok = enabled and cached
+    if ok:
         impact_zh = f"{label_zh} 插件已启用。"
+    elif enabled:
+        impact_zh = f"{label_zh} 配置标记为启用，但本地插件包不存在；需在 Codex 插件管理中重新安装。"
     elif cached:
         impact_zh = f"{label_zh} 插件已缓存但未启用；需在 Codex 插件管理中启用并重启应用。"
     else:
@@ -77,7 +80,7 @@ def codex_plugin_check(
     return {
         "id": check_ids.get(plugin_name, plugin_name.replace("-", "_") + "_plugin"),
         "label_zh": f"Codex {label_zh} 插件",
-        "ok": enabled,
+        "ok": ok,
         "required": True,
         "impact_zh": impact_zh,
         "details": {

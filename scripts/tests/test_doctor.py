@@ -73,6 +73,25 @@ def test_plugin_check_distinguishes_cached_from_enabled(tmp_path):
     assert "已缓存但未启用" in check["impact_zh"]
 
 
+def test_plugin_check_requires_installed_cache_when_config_says_enabled(tmp_path):
+    codex_home = tmp_path / ".codex"
+    codex_home.mkdir()
+    (codex_home / "config.toml").write_text(
+        '[plugins."browser@openai-bundled"]\nenabled = true\n',
+        encoding="utf-8",
+    )
+
+    check = codex_plugin_check(
+        "browser@openai-bundled",
+        "Browser",
+        codex_home=codex_home,
+    )
+
+    assert check["details"]["enabled"] is True
+    assert check["details"]["cached"] is False
+    assert check["ok"] is False
+
+
 def test_doctor_rejects_unknown_profile(tmp_path):
     with pytest.raises(ValueError, match="profile"):
         run_doctor(tmp_path, profile="unknown")
