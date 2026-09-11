@@ -3,9 +3,11 @@ from pathlib import Path
 from ivd_research.jsonl import append_jsonl
 from ivd_research.translation import (
     TranslationEngine,
+    contains_translatable_english,
     is_mostly_english,
     setup_translation_engine,
     text_hash,
+    translate_materials,
     translate_sections,
     translation_status,
 )
@@ -291,5 +293,45 @@ def test_setup_translation_engine_uses_python_api_instead_of_argospm_path(monkey
     assert index_calls == ["en-zh"]
 
 
+def test_translate_materials_caches_metric_fact_excerpt(tmp_path: Path, monkeypatch):
+    excerpt = "The assay achieved sensitivity 91% in the validation cohort."
+    append_jsonl(
+        tmp_path / "knowledge" / "metric_facts.jsonl",
+        {
+            "metric_fact_id": "MF-000001",
+            "metric_type": "sensitivity",
+            "material_id": "MAT-000001",
+            "excerpt": excerpt,
+        },
+    )
+    monkeypatch.setattr(TranslationEngine, "active_provider", lambda _self: "argos")
+    monkeypatch.setattr(
+        TranslationEngine,
+        "translate_text",
+        lambda _self, text, context="": "该检测在验证队列中的灵敏度为 91%。",
+    )
+
+    result = translate_materials(tmp_path, provider="argos")
+    cache = list(
+        __import__("ivd_research.jsonl", fromlist=["read_jsonl"]).read_jsonl(
+            tmp_path / "data" / "translations.jsonl"
+        )
+    )
+
+    assert result["translated_count"] == 1
+    assert cache[0]["field"] == "metric:MF-000001"
+    assert cache[0]["source_text"] == excerpt
+
+
+def test_mixed_chinese_metadata_and_english_metric_still_requires_translation():
+    text = (
+        "摘要：该研究完成验证。"
+        "The assay achieved sensitivity 91% and specificity 88% in the validation cohort."
+    )
+
+    assert contains_translatable_english(text)
+
+
 def test_short_english_title_can_use_title_threshold():
     assert is_mostly_english("AD biomarker panel", min_ascii_letters=8)
+    contains_translatable_english,

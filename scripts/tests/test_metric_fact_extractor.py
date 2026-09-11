@@ -21,6 +21,11 @@ def test_metric_fact_extractor_finds_performance_values():
     assert by_type["specificity"] == "81%"
     assert "cutoff" in by_type
     assert "sample_size" in by_type
+    sensitivity = next(fact for fact in facts if fact.metric_type == "sensitivity")
+    assert sensitivity.metric_type_en == "Sensitivity"
+    assert sensitivity.metric_type_zh == "检出灵敏度"
+    assert "漏检风险" in sensitivity.metric_explanation_zh
+    assert sensitivity.translation_status == "not_generated"
 
 
 def test_metric_fact_extractor_rejects_engineering_sensitivity_and_citation_numbers():
@@ -139,3 +144,30 @@ def test_metric_fact_extractor_supports_common_diagnostic_and_chinese_forms():
     assert ("cutoff", "10 mg/L") in values
     assert ("sensitivity", "92%") in values
     assert ("specificity", "89%") in values
+
+
+def test_metric_fact_unknown_type_preserves_original_label():
+    from ivd_research.knowledge.fact_extractor import metric_display_fields
+
+    fields = metric_display_fields("novel_score")
+
+    assert fields["metric_type_en"] == "novel_score"
+    assert fields["metric_type_zh"] == "novel_score"
+    assert "人工复核" in fields["metric_explanation_zh"]
+
+
+def test_mixed_language_metric_excerpt_is_not_marked_as_already_chinese():
+    material = {
+        "material_id": "MAT-000027",
+        "raw_fields": {
+            "abstract": (
+                "摘要：该研究完成验证。"
+                "The assay achieved sensitivity 91% in the validation cohort."
+            )
+        },
+    }
+
+    fact = extract_metric_facts(material, evidence_card_id="EC-000027")[0]
+
+    assert fact.excerpt_zh == ""
+    assert fact.translation_status == "not_generated"

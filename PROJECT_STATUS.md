@@ -18,19 +18,23 @@
 - 已实现本地离线资产、内网镜像、公网源三级回退安装器，支持打包 Python、wheelhouse、Chromium 和 Argos 英中模型。
 - 已修复 Windows 翻译模型安装依赖裸 `argospm` PATH 的问题，改用 Argos Python API 或显式本地模型路径。
 - doctor 已增加 Windows 安装状态、manifest 版本、资产来源和失败记录检查。
+- 指标事实已增加中英文指标名、中文解释、数值解释、中文摘录和翻译状态，并贯通 HTML、Excel、Markdown 证据卡。
+- 翻译命令已覆盖指标摘录缓存；混合中英文摘录不会再误判为“原文已是中文”。
+- HTML 指标表使用独立横向滚动容器，移动端不再撑宽整页，证据卡 ID 不断词。
 
 ## 已验证
 
 - 设计文档已通过回读与 `git diff --check`，提交为 `5a05f7a`。
 - Task 1：`7 passed`；Ruff、compileall 和 `git diff --check` 通过。
 - Task 2：`35 passed`；Ruff、compileall、manifest CLI 和 `git diff --check` 通过。
+- Task 3：`85 passed`；Ruff、compileall、模板一致性和 `git diff --check` 通过。
+- 浏览器视觉验收：桌面端与 375px 移动端控制台 0 错误；移动端 body/viewport 为 375/375，指标表内部滚动宽度 1056px。
 
 ## 待办
 
-- 实现指标事实双语数据和三端展示。
 - 更新 Skill、版本、文档和发布验证记录。
 - 在干净 Windows 10/11 主机做最终离线安装验收。
 
 ## 下一步
 
-按实施计划执行 Task 3：指标事实双语数据与三端展示。
+按实施计划执行 Task 4：Skill、文档、版本和发布验证。

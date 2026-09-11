@@ -17,6 +17,70 @@ _SENSITIVITY_LABEL = r"(?:\b(?:(?:diagnostic|clinical)\s+)?sensitivity\b|(?:诊�
 _SPECIFICITY_LABEL = r"(?:\b(?:(?:diagnostic|clinical)\s+)?specificity\b|(?:诊断|临床)?特异性)"
 
 
+METRIC_DISPLAY = {
+    "sensitivity": {
+        "metric_type_en": "Sensitivity",
+        "metric_type_zh": "检出灵敏度",
+        "metric_explanation_zh": "阳性样本被正确检出的比例，通常用于评估漏检风险。",
+    },
+    "specificity": {
+        "metric_type_en": "Specificity",
+        "metric_type_zh": "检出特异性",
+        "metric_explanation_zh": "阴性样本被正确判为阴性的比例，通常用于评估误报风险。",
+    },
+    "AUC": {
+        "metric_type_en": "Area under the curve (AUC)",
+        "metric_type_zh": "曲线下面积 AUC",
+        "metric_explanation_zh": "区分阳性与阴性或目标状态的综合能力，越接近 1 通常越好。",
+    },
+    "lod": {
+        "metric_type_en": "Limit of detection (LoD)",
+        "metric_type_zh": "最低检出限 LoD",
+        "metric_explanation_zh": "检测方法能够稳定识别的最低目标物水平，需要结合单位、基质和检出概率复核。",
+    },
+    "cutoff": {
+        "metric_type_en": "Cut-off / threshold",
+        "metric_type_zh": "判定阈值 / cut-off",
+        "metric_explanation_zh": "将结果判为阳性、阴性或风险分层的阈值，需要结合平台和样本类型复核。",
+    },
+    "sample_size": {
+        "metric_type_en": "Sample size",
+        "metric_type_zh": "样本量",
+        "metric_explanation_zh": "用于该研究、评价或分析的人数或样本数，影响结论稳定性。",
+    },
+    "HR": {
+        "metric_type_en": "Hazard ratio (HR)",
+        "metric_type_zh": "风险比 HR",
+        "metric_explanation_zh": "暴露组或阳性组发生结局的相对风险，需要结合置信区间解读。",
+    },
+    "OR": {
+        "metric_type_en": "Odds ratio (OR)",
+        "metric_type_zh": "比值比 OR",
+        "metric_explanation_zh": "结局发生优势的相对比值，需要结合研究设计和置信区间解读。",
+    },
+    "CI": {
+        "metric_type_en": "Confidence interval (CI)",
+        "metric_type_zh": "置信区间 CI",
+        "metric_explanation_zh": "统计估计的不确定性范围，区间越宽通常代表不确定性越大。",
+    },
+}
+
+VALUE_EXPLANATION_ZH = "原文报告的具体数值或区间，必须结合指标名称、单位、样本类型和原文语境解读。"
+
+
+def metric_display_fields(metric_type: str) -> dict[str, str]:
+    key = str(metric_type or "").strip()
+    if key in METRIC_DISPLAY:
+        return {**METRIC_DISPLAY[key], "value_explanation_zh": VALUE_EXPLANATION_ZH}
+    fallback = key or "待复核指标"
+    return {
+        "metric_type_en": fallback,
+        "metric_type_zh": fallback,
+        "metric_explanation_zh": "从原文中抽取的未知指标，需要人工复核名称、单位和业务含义。",
+        "value_explanation_zh": VALUE_EXPLANATION_ZH,
+    }
+
+
 PAIRED_RATE_PATTERN = re.compile(
     rf"{_SENSITIVITY_LABEL}\s*(?:and|/|和|及)\s*{_SPECIFICITY_LABEL}"
     rf"\s*(?:{_LINK}|分别为)?\s*({_RATE})\s*(?:and|/|,|，|和)\s*({_RATE})"
@@ -153,11 +217,21 @@ def _append_metric_fact(
     if not normalized_value or key in seen:
         return
     seen.add(key)
+    display = metric_display_fields(metric_type)
+    contains_english_sentence = len(re.findall(r"[A-Za-z]", evidence)) >= 20
+    has_cjk = bool(re.search(r"[\u4e00-\u9fff]", evidence))
+    source_is_chinese = has_cjk and not contains_english_sentence
     facts.append(
         MetricFact(
             metric_type=metric_type,
+            metric_type_en=display["metric_type_en"],
+            metric_type_zh=display["metric_type_zh"],
+            metric_explanation_zh=display["metric_explanation_zh"],
             value=normalized_value,
+            value_explanation_zh=display["value_explanation_zh"],
             excerpt=evidence,
+            excerpt_zh=evidence if source_is_chinese else "",
+            translation_status="not_needed" if source_is_chinese else "not_generated",
             evidence_card_id=evidence_card_id,
             material_id=str(material.get("material_id") or ""),
             source_location=str(

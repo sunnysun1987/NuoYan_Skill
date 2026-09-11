@@ -16,6 +16,7 @@ from ivd_research.reports import (
     normalize_materials,
 )
 from ivd_research.quality import build_collection_alerts
+from ivd_research.translation import text_hash
 
 
 def _literature_material():
@@ -545,6 +546,7 @@ def test_chinese_literature_gap_is_not_covered_by_generic_pubmed_material():
 
 def test_metric_fact_rows_use_chinese_labels_and_links():
     material = normalize_materials([_literature_material()], [])[0]
+    excerpt = "The assay showed sensitivity 91%."
     rows = build_metric_fact_rows(
         [
             {
@@ -553,7 +555,7 @@ def test_metric_fact_rows_use_chinese_labels_and_links():
                 "value": "91%",
                 "material_id": "MAT-000001",
                 "evidence_card_id": "EC-000001",
-                "excerpt": "The assay showed sensitivity 91%.",
+                "excerpt": excerpt,
             }
         ],
         materials_by_id={"MAT-000001": material},
@@ -564,14 +566,52 @@ def test_metric_fact_rows_use_chinese_labels_and_links():
                 "display_title": "证据卡标题",
             }
         ],
+        translation_cache={
+            (
+                "MAT-000001",
+                "metric:MF-000001",
+                text_hash(excerpt),
+            ): {
+                "translation_zh": "该检测的灵敏度为 91%。",
+                "status": "completed",
+            }
+        },
+        translation_capability={"configured": True, "command_available": True},
     )
 
     row = rows[0]
     assert row["metric_type_zh"] == "检出灵敏度"
-    assert "漏检风险" in row["metric_explanation"]
+    assert row["metric_type_en"] == "Sensitivity"
+    assert "漏检风险" in row["metric_explanation_zh"]
+    assert row["excerpt_zh"] == "该检测的灵敏度为 91%。"
+    assert row["translation_status"] == "completed"
+    assert "sensitivity" in row["search_text"]
+    assert "该检测的灵敏度" in row["search_text"]
     assert row["material_title"].startswith("Diagnostic Accuracy")
     assert row["material_href"] == "https://pubmed.ncbi.nlm.nih.gov/38252443/"
     assert row["evidence_card_anchor"] == "evidence-card-EC-000001"
+
+
+def test_metric_fact_rows_keep_english_when_translation_engine_is_missing():
+    rows = build_metric_fact_rows(
+        [
+            {
+                "metric_fact_id": "MF-000002",
+                "metric_type": "AUC",
+                "value": "0.92",
+                "material_id": "MAT-000001",
+                "excerpt": "The assay achieved AUC 0.92.",
+            }
+        ],
+        materials_by_id={},
+        screening_cards=[],
+        translation_cache={},
+        translation_capability={"configured": False, "command_available": True},
+    )
+
+    assert rows[0]["excerpt_zh"] == ""
+    assert rows[0]["translation_status"] == "engine_not_ready"
+    assert rows[0]["excerpt_en"] == "The assay achieved AUC 0.92."
 
 
 def test_section_evidence_rows_are_paginated_in_ui_not_hard_limited():

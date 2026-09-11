@@ -181,13 +181,19 @@ class LiteratureRecord(BaseModel):
 class MetricFact(BaseModel):
     metric_fact_id: str = ""
     metric_type: str
+    metric_type_en: str = ""
+    metric_type_zh: str = ""
+    metric_explanation_zh: str = ""
     value: str
+    value_explanation_zh: str = ""
     comparator: str = ""
     cohort: str = ""
     sample_type: str = ""
     platform: str = ""
     reference_standard: str = ""
     excerpt: str
+    excerpt_zh: str = ""
+    translation_status: str = "not_generated"
     evidence_card_id: str = ""
     material_id: str = ""
     source_location: str = ""

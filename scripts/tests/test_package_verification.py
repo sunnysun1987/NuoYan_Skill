@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 from bs4 import BeautifulSoup
+from openpyxl import load_workbook
 
 from ivd_research.evidence import (
     build_draft_evidence_card,
@@ -563,6 +564,10 @@ def test_standard_delivery_report_has_drilldown_navigation_and_metric_definition
     assert 'data-page-size="8"' in html
     assert "依据清单" in html
     assert "相关内容原文" in html
+    assert "English label" in html
+    assert "中文速读" in html
+    assert "translation-status" in html
+    assert "metric-table-scroll" in html
     assert "先看结论" in html
     assert "研发定位" in html
     assert html.index('id="tab-metrics"') < html.index('id="tab-core"')
@@ -574,6 +579,53 @@ def test_standard_delivery_report_has_drilldown_navigation_and_metric_definition
     assert metrics_panel is not None
     assert reading_panel.select_one("#metric-facts") is None
     assert metrics_panel.select_one("#metric-facts") is not None
+    template = (
+        Path(__file__).resolve().parents[2]
+        / "scripts"
+        / "ivd_research"
+        / "assets"
+        / "templates"
+        / "standard-delivery-report.html"
+    ).read_text(encoding="utf-8")
+    assert '<div class="metric-table-scroll"' in template
+    assert '<table class="metric-fact-table">' in template
+
+
+def test_review_workbook_metric_sheet_has_bilingual_columns(tmp_path: Path):
+    task_dir = _task_dir(tmp_path)
+    _write_single_material_and_card(task_dir)
+    append_jsonl(
+        task_dir / "knowledge" / "metric_facts.jsonl",
+        {
+            "metric_fact_id": "MF-000001",
+            "metric_type": "sensitivity",
+            "metric_type_en": "Sensitivity",
+            "metric_type_zh": "检出灵敏度",
+            "metric_explanation_zh": "阳性样本被正确检出的比例。",
+            "value": "91%",
+            "value_explanation_zh": "原文报告的结果值。",
+            "material_id": "MAT-000001",
+            "evidence_card_id": "EC-000001",
+            "excerpt": "Sensitivity was 91%.",
+            "excerpt_zh": "灵敏度为 91%。",
+            "translation_status": "completed",
+        },
+    )
+
+    result = export_review(task_dir)
+    workbook = load_workbook(result["review_path"], read_only=True)
+    headers = [cell.value for cell in next(workbook["指标事实"].iter_rows())]
+
+    assert [
+        "英文指标",
+        "中文指标",
+        "中文解释",
+        "英文摘录",
+        "中文摘录",
+        "翻译状态",
+    ] == [header for header in headers if header in {
+        "英文指标", "中文指标", "中文解释", "英文摘录", "中文摘录", "翻译状态"
+    }]
 
 
 def test_standard_delivery_merges_validated_report_sections_without_losing_workbench_tabs(

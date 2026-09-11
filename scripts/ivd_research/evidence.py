@@ -561,7 +561,14 @@ def export_evidence_card_files(task_dir: Path, card: dict[str, Any]) -> None:
         or str(fact).startswith("参数事实")
     ]
     metric_lines = [
-        f"{fact.get('metric_type', '')}：{fact.get('value', '')}；{fact.get('excerpt', '')[:220]}"
+        (
+            f"{fact.get('metric_type_zh') or fact.get('metric_type', '')}"
+            f"（{fact.get('metric_type_en') or fact.get('metric_type', '')}）"
+            f"：{fact.get('value', '')}；"
+            f"{fact.get('metric_explanation_zh', '')}；"
+            f"原文：{fact.get('excerpt', '')[:220]}"
+            + (f"；中文速读：{fact.get('excerpt_zh', '')[:220]}" if fact.get("excerpt_zh") else "")
+        )
         for fact in card.get("metric_facts", [])
         if isinstance(fact, dict)
     ]

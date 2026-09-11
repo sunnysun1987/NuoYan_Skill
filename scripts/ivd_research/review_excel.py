@@ -307,7 +307,11 @@ def export_review(task_dir: Path) -> dict:
         [
             "指标事实ID",
             "指标类型",
+            "英文指标",
+            "中文指标",
+            "中文解释",
             "数值",
+            "数值解释",
             "材料ID",
             "证据卡ID",
             "样本类型",
@@ -315,7 +319,9 @@ def export_review(task_dir: Path) -> dict:
             "参照方法",
             "队列/人群",
             "比较对象",
-            "原文线索",
+            "英文摘录",
+            "中文摘录",
+            "翻译状态",
             "来源位置",
             "复核状态",
         ]
@@ -381,7 +387,11 @@ def export_review(task_dir: Path) -> dict:
             [
                 fact.get("metric_fact_id", ""),
                 fact.get("metric_type", ""),
+                fact.get("metric_type_en", ""),
+                fact.get("metric_type_zh", ""),
+                fact.get("metric_explanation_zh", ""),
                 fact.get("value", ""),
+                fact.get("value_explanation_zh", ""),
                 fact.get("material_id", ""),
                 fact.get("evidence_card_id", ""),
                 fact.get("sample_type", ""),
@@ -390,6 +400,8 @@ def export_review(task_dir: Path) -> dict:
                 fact.get("cohort", ""),
                 fact.get("comparator", ""),
                 fact.get("excerpt", ""),
+                fact.get("excerpt_zh", ""),
+                fact.get("translation_status", "not_generated"),
                 fact.get("source_location", ""),
                 "未复核",
             ]

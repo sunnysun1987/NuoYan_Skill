@@ -327,7 +327,7 @@
       <section class="tab-panel" id="tab-metrics">
         <section class="section-card flat metric-facts-workbench" id="metric-facts">
           <h2>指标事实</h2>
-          <p class="section-note">以下为系统从材料和证据卡中抽取的参数事实，用于快速定位性能、样本量和统计结果。当前展示 {{ metric_facts|length }} / {{ metric_fact_total }} 条；正式引用前仍需回到原文或证据卡复核。</p>
+          <p class="section-note">以下为系统从材料和证据卡中抽取的参数事实，提供中文速读、English label 与英文原文，用于快速定位性能、样本量和统计结果。当前展示 {{ metric_facts|length }} / {{ metric_fact_total }} 条；正式引用前仍需回到原文或证据卡复核。</p>
           <div class="metric-filter-panel">
             <label class="metric-search-box">
               <span>组合查询</span>
@@ -344,20 +344,21 @@
             <div class="metric-filter-status"><span id="metric-visible-count">{{ metric_facts|length }}</span> / {{ metric_facts|length }} 条匹配</div>
           </div>
           {% if metric_facts %}
+          <div class="metric-table-scroll" tabindex="0" aria-label="指标事实明细，可横向滚动">
           <table class="metric-fact-table">
-            <thead><tr><th>指标字段</th><th>数值字段</th><th>材料</th><th>证据卡</th><th>样本/平台/参照</th><th>相关内容原文</th></tr></thead>
+            <thead><tr><th>指标 / English label</th><th>数值 / 中文解释</th><th>材料</th><th>证据卡</th><th>样本/平台/参照</th><th>中文速读 / English original</th></tr></thead>
             <tbody>
               {% for fact in metric_facts %}
               <tr class="metric-fact-row"
-                data-metric="{{ fact.metric_type_zh }} {{ fact.metric_type }}"
+                data-metric="{{ fact.metric_type_zh }} {{ fact.metric_type_en }} {{ fact.metric_type }}"
                 data-value="{{ fact.value }}"
                 data-material="{{ fact.material_title }} {{ fact.material_id }}"
                 data-card="{{ fact.evidence_card_id }} {{ fact.evidence_card_title }}"
                 data-sample="{{ fact.sample_type }}"
                 data-platform="{{ fact.platform }} {{ fact.reference_standard }}"
                 data-search="{{ fact.search_text }}">
-                <td><strong>{{ fact.metric_type_zh }}</strong><span>{{ fact.metric_explanation }}</span></td>
-                <td><strong>{{ fact.value }}</strong><span>{{ fact.value_explanation }}</span></td>
+                <td><strong>{{ fact.metric_type_zh }}</strong><span>English label: {{ fact.metric_type_en }}</span></td>
+                <td><strong>{{ fact.value }}</strong><span>{{ fact.metric_explanation_zh }}</span><span>{{ fact.value_explanation_zh }}</span></td>
                 <td>
                   {% if fact.material_href %}
                   <a href="{{ fact.material_href }}" target="_blank" rel="noopener noreferrer">{{ fact.material_title }}</a>
@@ -371,11 +372,19 @@
                   <div>平台：{{ fact.platform }}</div>
                   <div>参照：{{ fact.reference_standard }}</div>
                 </td>
-                <td>{{ fact.excerpt }}</td>
+                <td>
+                  <span class="translation-status {{ fact.translation_status }}">{{ fact.translation_status_label }}</span>
+                  {% if fact.excerpt_zh %}<div class="metric-translation">{{ fact.excerpt_zh }}</div>{% endif %}
+                  <details class="metric-original"{% if not fact.excerpt_zh %} open{% endif %}>
+                    <summary>English original / 英文原文</summary>
+                    <p>{{ fact.excerpt_en }}</p>
+                  </details>
+                </td>
               </tr>
               {% endfor %}
             </tbody>
           </table>
+          </div>
           {% else %}
           <div class="empty-state">当前知识资产中尚未抽取到可展示的指标事实。</div>
           {% endif %}

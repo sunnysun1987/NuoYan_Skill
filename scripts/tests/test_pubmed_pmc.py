@@ -220,6 +220,8 @@ def test_evidence_card_markdown_contains_translation_and_parameters(tmp_path: Pa
     assert "## 中文阅读版" not in markdown
     assert "## 参数要点" in markdown
     assert "AUC" in markdown
+    assert "检出灵敏度（Sensitivity）" in markdown
+    assert "原文：" in markdown
 
 
 def test_commit_staged_evidence_replaces_existing_card_with_same_id(tmp_path: Path):

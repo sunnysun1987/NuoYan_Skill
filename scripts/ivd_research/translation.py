@@ -10,6 +10,7 @@ from typing import Any
 import httpx
 
 from .jsonl import append_jsonl, read_jsonl
+from .knowledge.fact_extractor import metric_display_fields
 from .status import now_iso
 
 
@@ -67,6 +68,10 @@ def is_mostly_english(text: str, *, min_ascii_letters: int = 20) -> bool:
     return ascii_letters >= min_ascii_letters and ascii_letters > cjk * 2
 
 
+def contains_translatable_english(text: str, *, min_ascii_letters: int = 20) -> bool:
+    return len(re.findall(r"[A-Za-z]", str(text or ""))) >= min_ascii_letters
+
+
 def section_label_zh(label: str) -> str:
     raw = str(label or "Abstract").strip()
     return SECTION_LABEL_ZH.get(raw.lower(), raw)
@@ -93,6 +98,62 @@ def parameter_lines(text: str) -> list[str]:
 
 def text_hash(text: str) -> str:
     return hashlib.sha256(str(text or "").encode("utf-8")).hexdigest()
+
+
+def metric_translation_field(fact: dict[str, Any]) -> str:
+    fact_id = str(fact.get("metric_fact_id") or "").strip()
+    if fact_id:
+        return f"metric:{fact_id}"
+    metric_type = str(fact.get("metric_type") or "unknown").strip() or "unknown"
+    value = str(fact.get("value") or "").strip()
+    return f"metric:{metric_type}:{text_hash(value)[:12]}"
+
+
+def enrich_metric_fact_translation(
+    task_dir: Path | None,
+    fact: dict[str, Any],
+    *,
+    cache: dict[tuple[str, str, str], dict[str, Any]] | None = None,
+    capability: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    enriched = dict(fact)
+    display = metric_display_fields(str(fact.get("metric_type") or ""))
+    for key, value in display.items():
+        enriched[key] = str(fact.get(key) or value)
+    excerpt = " ".join(str(fact.get("excerpt") or "").split())
+    enriched["excerpt_en"] = excerpt
+    existing_zh = " ".join(str(fact.get("excerpt_zh") or "").split())
+    if excerpt and not contains_translatable_english(excerpt, min_ascii_letters=8):
+        enriched["excerpt_zh"] = existing_zh or excerpt
+        enriched["translation_status"] = "not_needed"
+        return enriched
+    if existing_zh:
+        enriched["excerpt_zh"] = existing_zh
+        enriched["translation_status"] = str(fact.get("translation_status") or "completed")
+        return enriched
+
+    translation_cache = cache
+    if translation_cache is None and task_dir is not None:
+        translation_cache = load_translation_cache(task_dir)
+    translation_cache = translation_cache or {}
+    material_id = str(fact.get("material_id") or "")
+    cached = translation_cache.get(
+        (material_id, metric_translation_field(fact), text_hash(excerpt))
+    )
+    if cached and cached.get("translation_zh"):
+        enriched["excerpt_zh"] = str(cached.get("translation_zh") or "").strip()
+        enriched["translation_status"] = "completed"
+        return enriched
+
+    current_capability = capability
+    if current_capability is None and task_dir is not None:
+        current_capability = translation_status(task_dir)
+    current_capability = current_capability or {}
+    enriched["excerpt_zh"] = ""
+    enriched["translation_status"] = (
+        "not_generated" if current_capability.get("configured") else "engine_not_ready"
+    )
+    return enriched
 
 
 def translation_cache_path(task_dir: Path) -> Path:
@@ -654,8 +715,60 @@ def translate_materials(
                         "material_id": material_id,
                         "field": field,
                         "error": f"{type(exc).__name__}: {exc}",
-                    }
-                )
+                        }
+                    )
+    for fact in read_jsonl(task_dir / "knowledge" / "metric_facts.jsonl"):
+        excerpt = " ".join(str(fact.get("excerpt") or "").split())
+        if not excerpt or not contains_translatable_english(excerpt, min_ascii_letters=8):
+            continue
+        material_id = str(fact.get("material_id") or "")
+        field = metric_translation_field(fact)
+        digest = text_hash(excerpt)
+        if not force and (material_id, field, digest) in existing:
+            skipped_count += 1
+            continue
+        if limit and translated_count >= limit:
+            return {
+                "status": "partial",
+                "translated_count": translated_count,
+                "skipped_count": skipped_count,
+                "failed_count": failed_count,
+                "errors": errors,
+                "message_zh": f"已按 limit={limit} 生成部分完整中文翻译。",
+            }
+        try:
+            translation_zh = engine.translate_text(
+                excerpt,
+                context=(
+                    f"指标事实 {fact.get('metric_type_en') or fact.get('metric_type', '')} "
+                    f"{fact.get('value', '')}"
+                ),
+            )
+            append_jsonl(
+                translation_cache_path(task_dir),
+                {
+                    "time": now_iso(),
+                    "material_id": material_id,
+                    "field": field,
+                    "label": fact.get("metric_type_en") or fact.get("metric_type", "Metric fact"),
+                    "text_hash": digest,
+                    "source_text": excerpt,
+                    "translation_zh": translation_zh,
+                    "status": "completed",
+                    "engine": engine.active_provider() or engine.provider,
+                    "model": engine.model,
+                },
+            )
+            translated_count += 1
+        except Exception as exc:
+            failed_count += 1
+            errors.append(
+                {
+                    "material_id": material_id,
+                    "field": field,
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+            )
     return {
         "status": "completed" if failed_count == 0 else "completed_with_errors",
         "translated_count": translated_count,

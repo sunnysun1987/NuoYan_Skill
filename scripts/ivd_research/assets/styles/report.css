@@ -1254,6 +1254,14 @@ a:hover { text-decoration: underline; }
 .metric-fact-table td:last-child {
   min-width: 340px;
 }
+.metric-table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+}
+.metric-table-scroll .metric-fact-table {
+  min-width: 1040px;
+}
 .metric-filter-panel {
   border: 1px solid var(--border-light);
   border-radius: var(--radius-md);
@@ -1309,6 +1317,44 @@ a:hover { text-decoration: underline; }
 .metric-fact-table td:nth-child(3) {
   min-width: 220px;
 }
+.translation-status {
+  display: inline-block !important;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: #f5f7f8;
+  color: var(--text-secondary) !important;
+  font-size: 11px !important;
+  font-weight: 800;
+  margin: 0 0 8px !important;
+  padding: 2px 6px;
+}
+.translation-status.completed,
+.translation-status.not_needed {
+  border-color: rgba(13,123,126,0.25);
+  background: var(--accent-light);
+  color: var(--accent) !important;
+}
+.translation-status.engine_not_ready {
+  border-color: rgba(170,98,22,0.25);
+  background: #fff7e8;
+  color: #8a5117 !important;
+}
+.metric-translation {
+  color: var(--text-primary);
+  line-height: 1.7;
+  margin-bottom: 8px;
+}
+.metric-original summary {
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+}
+.metric-original p {
+  color: var(--text-secondary);
+  line-height: 1.65;
+  margin: 7px 0 0;
+}
 .metric-fact-row[hidden] {
   display: none;
 }
@@ -1322,6 +1368,7 @@ a:hover { text-decoration: underline; }
   font-size: 12px;
   font-weight: 800;
   padding: 4px 9px;
+  white-space: nowrap;
 }
 .inline-jump:hover {
   border-color: var(--accent);

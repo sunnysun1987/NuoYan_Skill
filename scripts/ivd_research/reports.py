@@ -27,12 +27,14 @@ from .source_quality import build_source_quality_audit
 from .research_integrity import build_research_integrity_audit
 from .status import now_iso
 from .translation import (
+    enrich_metric_fact_translation,
     extract_parameters,
     is_mostly_english,
     load_translation_cache,
     text_hash,
     translation_status,
 )
+from .knowledge.fact_extractor import metric_display_fields
 
 
 REPORT_SECTIONS = [
@@ -1128,37 +1130,12 @@ def build_business_decision(
     }
 
 
-METRIC_TYPE_LABELS = {
-    "sensitivity": "检出灵敏度",
-    "specificity": "检出特异性",
-    "AUC": "曲线下面积 AUC",
-    "cutoff": "判定阈值 / cut-off",
-    "sample_size": "样本量",
-    "HR": "风险比 HR",
-    "OR": "比值比 OR",
-    "CI": "置信区间 CI",
-}
-
-METRIC_TYPE_EXPLANATIONS = {
-    "sensitivity": "阳性样本被正确检出的比例，通常用于评估漏检风险。",
-    "specificity": "阴性样本被正确判为阴性的比例，通常用于评估误报风险。",
-    "AUC": "区分阳性与阴性/目标状态的综合能力，越接近 1 通常越好。",
-    "cutoff": "将结果判为阳性、阴性或风险分层的阈值，需要结合平台和样本类型复核。",
-    "sample_size": "用于该研究、评价或分析的人数/样本数，影响结论稳定性。",
-    "HR": "暴露组或阳性组发生结局的相对风险，需要结合置信区间解读。",
-    "OR": "结局发生优势的相对比值，需要结合研究设计和置信区间解读。",
-    "CI": "统计估计的不确定性范围，区间越宽通常代表不确定性越大。",
-}
-
-
 def metric_type_label(metric_type: str) -> str:
-    key = str(metric_type or "").strip()
-    return METRIC_TYPE_LABELS.get(key, key or "待复核指标")
+    return metric_display_fields(metric_type)["metric_type_zh"]
 
 
 def metric_type_explanation(metric_type: str) -> str:
-    key = str(metric_type or "").strip()
-    return METRIC_TYPE_EXPLANATIONS.get(key, "从原文中抽取的参数事实，需结合原文语境人工复核。")
+    return metric_display_fields(metric_type)["metric_explanation_zh"]
 
 
 def material_display_title(material: dict | None, fallback: str = "") -> str:
@@ -1183,48 +1160,69 @@ def build_metric_fact_rows(
     *,
     materials_by_id: dict[str, dict],
     screening_cards: list[dict[str, Any]],
+    translation_cache: dict[tuple[str, str, str], dict[str, Any]] | None = None,
+    translation_capability: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     card_by_id = {str(card.get("card_id") or ""): card for card in screening_cards}
     rows: list[dict[str, Any]] = []
     for fact in metric_facts:
+        enriched = enrich_metric_fact_translation(
+            None,
+            fact,
+            cache=translation_cache,
+            capability=translation_capability,
+        )
         material_id = str(fact.get("material_id") or "")
         card_id = str(fact.get("evidence_card_id") or "")
         material = materials_by_id.get(material_id, {})
-        metric_type = str(fact.get("metric_type") or "")
+        metric_type = str(enriched.get("metric_type") or "")
         card = card_by_id.get(card_id, {})
         search_text = " ".join(
             str(part or "")
             for part in [
-                metric_type_label(metric_type),
-                metric_type,
-                fact.get("value", ""),
+                enriched.get("metric_type_zh", ""),
+                enriched.get("metric_type_en", ""),
+                enriched.get("value", ""),
                 material_display_title(material, material_id),
                 card_id,
-                fact.get("sample_type", ""),
-                fact.get("platform", ""),
-                fact.get("reference_standard", ""),
-                fact.get("excerpt", ""),
+                enriched.get("sample_type", ""),
+                enriched.get("platform", ""),
+                enriched.get("reference_standard", ""),
+                enriched.get("excerpt_en", ""),
+                enriched.get("excerpt_zh", ""),
             ]
         )
         rows.append(
             {
-                "metric_fact_id": fact.get("metric_fact_id", ""),
+                "metric_fact_id": enriched.get("metric_fact_id", ""),
                 "metric_type": metric_type,
-                "metric_type_zh": metric_type_label(metric_type),
-                "metric_explanation": metric_type_explanation(metric_type),
-                "value": fact.get("value", ""),
+                "metric_type_en": enriched.get("metric_type_en", ""),
+                "metric_type_zh": enriched.get("metric_type_zh", ""),
+                "metric_explanation": enriched.get("metric_explanation_zh", ""),
+                "metric_explanation_zh": enriched.get("metric_explanation_zh", ""),
+                "value": enriched.get("value", ""),
                 "value_label": "参数值 / 结果值",
-                "value_explanation": "原文报告的具体数值或区间，必须结合指标名称、样本类型和原文语境解读。",
+                "value_explanation": enriched.get("value_explanation_zh", ""),
+                "value_explanation_zh": enriched.get("value_explanation_zh", ""),
                 "material_id": material_id,
                 "material_title": material_display_title(material, material_id),
                 "material_href": material_href(material),
                 "evidence_card_id": card_id,
                 "evidence_card_anchor": evidence_card_anchor(card_id),
                 "evidence_card_title": card.get("display_title") or card.get("title") or card_id,
-                "sample_type": fact.get("sample_type") or "-",
-                "platform": fact.get("platform") or "-",
-                "reference_standard": fact.get("reference_standard") or "-",
-                "excerpt": _short_text(fact.get("excerpt", ""), 360),
+                "sample_type": enriched.get("sample_type") or "-",
+                "platform": enriched.get("platform") or "-",
+                "reference_standard": enriched.get("reference_standard") or "-",
+                "excerpt": _short_text(enriched.get("excerpt_en", ""), 360),
+                "excerpt_en": _short_text(enriched.get("excerpt_en", ""), 520),
+                "excerpt_zh": _short_text(enriched.get("excerpt_zh", ""), 520),
+                "translation_status": enriched.get("translation_status", "not_generated"),
+                "translation_status_label": {
+                    "completed": "已生成中文速读",
+                    "not_needed": "原文已是中文",
+                    "engine_not_ready": "翻译引擎未就绪",
+                    "not_generated": "待生成中文速读",
+                }.get(str(enriched.get("translation_status") or ""), "待复核"),
                 "search_text": search_text.lower(),
             }
         )
@@ -3661,6 +3659,8 @@ def build_standard_report(task_dir: Path, output: Path | None = None) -> dict:
         metric_facts,
         materials_by_id=materials_by_id,
         screening_cards=analysis_screening_cards,
+        translation_cache=load_translation_cache(task_dir),
+        translation_capability=translation_capability,
     )
     expert_decision = build_expert_decision(
         business_decision,
