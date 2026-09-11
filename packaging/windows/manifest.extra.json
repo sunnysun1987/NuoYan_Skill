@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "manifest_version": "2.3.0-template",
+  "profile": "extra",
+  "release_ready": false,
+  "assets": [
+    {
+      "id": "node-runtime",
+      "version": "not-selected",
+      "relative_path": "extra/node-runtime.zip",
+      "size": 0,
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "license": "Node.js license and notices must be bundled when this optional asset is built",
+      "required": false,
+      "sources": [
+        {"type": "local", "path": "extra/node-runtime.zip"},
+        {"type": "mirror", "url": "${NUOYAN_MIRROR_BASE_URL}/extra/node-runtime.zip"},
+        {"type": "public", "url": "${NUOYAN_RELEASE_BASE_URL}/extra/node-runtime.zip"}
+      ]
+    },
+    {
+      "id": "java-runtime",
+      "version": "not-selected",
+      "relative_path": "extra/java-runtime.zip",
+      "size": 0,
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "license": "JRE distribution license and notices must be bundled when this optional asset is built",
+      "required": false,
+      "sources": [
+        {"type": "local", "path": "extra/java-runtime.zip"},
+        {"type": "mirror", "url": "${NUOYAN_MIRROR_BASE_URL}/extra/java-runtime.zip"},
+        {"type": "public", "url": "${NUOYAN_RELEASE_BASE_URL}/extra/java-runtime.zip"}
+      ]
+    }
+  ]
+}

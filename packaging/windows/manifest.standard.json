@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "manifest_version": "2.3.0-template",
+  "profile": "standard",
+  "release_ready": false,
+  "assets": [
+    {
+      "id": "python-wheelhouse",
+      "version": "locked-by-build",
+      "relative_path": "python/wheelhouse.zip",
+      "size": 0,
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "license": "Per-package licenses are written to THIRD_PARTY_LICENSES.txt during build",
+      "required": true,
+      "sources": [
+        {"type": "local", "path": "python/wheelhouse.zip"},
+        {"type": "mirror", "url": "${NUOYAN_MIRROR_BASE_URL}/python/wheelhouse.zip"},
+        {"type": "public", "url": "${NUOYAN_RELEASE_BASE_URL}/python/wheelhouse.zip"}
+      ]
+    },
+    {
+      "id": "playwright-chromium",
+      "version": "locked-by-build",
+      "relative_path": "browser/playwright-chromium.zip",
+      "size": 0,
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "license": "Playwright and bundled browser notices are written during build",
+      "required": true,
+      "sources": [
+        {"type": "local", "path": "browser/playwright-chromium.zip"},
+        {"type": "mirror", "url": "${NUOYAN_MIRROR_BASE_URL}/browser/playwright-chromium.zip"},
+        {"type": "public", "url": "${NUOYAN_RELEASE_BASE_URL}/browser/playwright-chromium.zip"}
+      ]
+    },
+    {
+      "id": "argos-en-zh-model",
+      "version": "locked-by-build",
+      "relative_path": "translation/translate-en_zh.argosmodel",
+      "size": 0,
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "license": "Model source and license are written to THIRD_PARTY_LICENSES.txt during build",
+      "required": true,
+      "sources": [
+        {"type": "local", "path": "translation/translate-en_zh.argosmodel"},
+        {"type": "mirror", "url": "${NUOYAN_MIRROR_BASE_URL}/translation/translate-en_zh.argosmodel"},
+        {"type": "public", "url": "${NUOYAN_RELEASE_BASE_URL}/translation/translate-en_zh.argosmodel"}
+      ]
+    }
+  ]
+}

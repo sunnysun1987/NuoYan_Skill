@@ -92,6 +92,7 @@ from .status import (
     now_iso,
 )
 from .translation import setup_translation_engine, translate_materials, translation_status
+from .windows_assets import inspect_asset_manifest
 
 app = typer.Typer(name="nuoyan", no_args_is_help=True)
 
@@ -584,6 +585,19 @@ def doctor_command(
         result = run_doctor(root, include_network=network, profile=profile)
     except ValueError as exc:
         raise typer.BadParameter(str(exc), param_hint="--profile") from exc
+    emit(result, json_output)
+    if strict and not result["ok"]:
+        raise typer.Exit(code=1)
+
+
+@app.command("windows-assets")
+def windows_assets_command(
+    manifest: Path = typer.Option(..., "--manifest", exists=True, dir_okay=False),
+    asset_root: Optional[Path] = typer.Option(None, "--asset-root", file_okay=False),
+    strict: bool = typer.Option(False, "--strict"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    result = inspect_asset_manifest(manifest, asset_root=asset_root)
     emit(result, json_output)
     if strict and not result["ok"]:
         raise typer.Exit(code=1)
