@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import os
 import re
 import shutil
@@ -262,6 +263,39 @@ def _translation_engine_check() -> dict:
     }
 
 
+def _windows_install_state_check(home: Path) -> dict:
+    state_path = home / "skills" / "nuoyan-skill-v2" / ".nuoyan" / "install-state.json"
+    state: dict = {}
+    error = ""
+    if state_path.is_file():
+        try:
+            state = json.loads(state_path.read_text(encoding="utf-8-sig"))
+        except (OSError, json.JSONDecodeError) as exc:
+            error = f"{type(exc).__name__}: {exc}"[:1000]
+    assets = state.get("assets") if isinstance(state.get("assets"), list) else []
+    failures = state.get("failures") if isinstance(state.get("failures"), list) else []
+    manifest_version = str(state.get("manifest_version") or "")
+    ok = bool(manifest_version and assets and not failures and not error)
+    return {
+        "id": "windows_install_state",
+        "label_zh": "Windows 标准资产安装记录",
+        "ok": ok,
+        "required": True,
+        "impact_zh": (
+            "Windows 标准资产已按 manifest 安装并留存来源与校验记录。"
+            if ok
+            else "缺少有效的 Windows 安装状态；需使用 2.3.0 安装器完成资产校验和安装。"
+        ),
+        "details": {
+            "state_path": str(state_path),
+            "manifest_version": manifest_version,
+            "assets": assets,
+            "failures": failures,
+            "error": error,
+        },
+    }
+
+
 def _ocr_runtime_check() -> dict:
     module_ok = module_available("pytesseract")
     executable = shutil.which("tesseract") or ""
@@ -489,6 +523,7 @@ def run_doctor(
             _runtime_source_check(home),
             _distribution_conflict_check(),
             _skill_install_check(home),
+            _windows_install_state_check(home),
             _playwright_browser_check(),
             _pdf_toolchain_check(),
             _translation_engine_check(),

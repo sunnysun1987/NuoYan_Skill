@@ -139,6 +139,7 @@ def setup_translation_engine(
     *,
     provider: str = "argos",
     install_model: bool = True,
+    model_path: Path | None = None,
     timeout: int = 180,
 ) -> dict[str, Any]:
     provider = str(provider or "argos").lower()
@@ -177,40 +178,33 @@ def setup_translation_engine(
                 "message_zh": "Argos Translate Python 依赖安装失败。可由 IT 管理员在企业标准环境中预装后再分发诺研_skill。",
             }
     engine = TranslationEngine(provider="argos")
+    model_source = ""
     if install_model and engine.argos_installed() and not engine.argos_ready():
-        for command in [
-            ["argospm", "update"],
-            ["argospm", "install", "translate-en_zh"],
-        ]:
+        if model_path is not None:
+            install_argos_model_from_path(model_path)
+            model_source = str(model_path)
+            engine = TranslationEngine(provider="argos")
+        if not engine.argos_ready():
             try:
-                completed = subprocess.run(
-                    command,
-                    check=False,
-                    capture_output=True,
-                    text=True,
-                    timeout=timeout,
-                    env=subprocess_env_with_certifi(),
-                )
+                downloaded_model = install_argos_model_from_index()
+                model_source = str(downloaded_model)
                 executed.append(
                     {
-                        "command": " ".join(command),
-                        "returncode": completed.returncode,
-                        "stdout_tail": completed.stdout[-1000:],
-                        "stderr_tail": completed.stderr[-1000:],
+                        "command": "argostranslate.package install en->zh",
+                        "returncode": 0,
+                        "stdout_tail": str(downloaded_model),
+                        "stderr_tail": "",
                     }
                 )
-                if completed.returncode != 0:
-                    break
-            except (OSError, subprocess.SubprocessError) as exc:
+            except Exception as exc:
                 executed.append(
                     {
-                        "command": " ".join(command),
+                        "command": "argostranslate.package install en->zh",
                         "returncode": -1,
                         "stdout_tail": "",
-                        "stderr_tail": f"{type(exc).__name__}: {exc}",
+                        "stderr_tail": f"{type(exc).__name__}: {exc}"[-1000:],
                     }
                 )
-                break
         engine = TranslationEngine(provider="argos")
     if engine.argos_ready():
         status = "ready"
@@ -229,6 +223,7 @@ def setup_translation_engine(
         "status": status,
         "provider": "argos",
         "commands": executed,
+        "model_source": model_source,
         "argos_installed": engine.argos_installed(),
         "argos_model_ready": engine.argos_ready(),
         "message_zh": message,
@@ -237,6 +232,35 @@ def setup_translation_engine(
             "模型安装完成后运行 translation-status 确认 argos_model_ready=true，再运行 translate-materials 生成 data/translations.jsonl。"
         ),
     }
+
+
+def install_argos_model_from_path(model_path: Path) -> None:
+    path = Path(model_path).expanduser().resolve()
+    if not path.is_file() or path.suffix.lower() != ".argosmodel":
+        raise ValueError(f"Invalid Argos model path: {path}")
+    import argostranslate.package
+
+    argostranslate.package.install_from_path(path)
+
+
+def install_argos_model_from_index() -> Path:
+    import argostranslate.package
+
+    argostranslate.package.update_package_index()
+    package = next(
+        (
+            item
+            for item in argostranslate.package.get_available_packages()
+            if getattr(item, "from_code", "") == "en"
+            and getattr(item, "to_code", "") == "zh"
+        ),
+        None,
+    )
+    if package is None:
+        raise RuntimeError("Argos package index has no English-to-Chinese model")
+    downloaded_path = Path(package.download()).expanduser().resolve()
+    install_argos_model_from_path(downloaded_path)
+    return downloaded_path
 
 
 class TranslationEngine:

@@ -34,7 +34,26 @@ def test_standard_profile_reports_complete_research_environment(tmp_path):
         "chrome_plugin",
         "network_preflight",
         "ocr_runtime",
+        "windows_install_state",
     } <= check_ids
+
+
+def test_windows_install_state_reports_manifest_and_asset_sources(tmp_path):
+    skill_root = tmp_path / "skills" / "nuoyan-skill-v2"
+    state_path = skill_root / ".nuoyan" / "install-state.json"
+    state_path.parent.mkdir(parents=True)
+    state_path.write_text(
+        '{"manifest_version":"2.3.0-release","assets":['
+        '{"id":"argos-en-zh-model","source_type":"local","sha256":"abc"}]}'
+        ,
+        encoding="utf-8",
+    )
+
+    check = doctor._windows_install_state_check(tmp_path)
+
+    assert check["ok"] is True
+    assert check["details"]["manifest_version"] == "2.3.0-release"
+    assert check["details"]["assets"][0]["source_type"] == "local"
 
 
 def test_standard_profile_requires_network_preflight(tmp_path):

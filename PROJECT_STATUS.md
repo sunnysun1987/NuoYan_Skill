@@ -15,19 +15,22 @@
 - 已定位翻译缺失根因：现有 Windows 安装依赖在线 pip、Playwright 和 Argos 模型下载，Skill 安装与运行时安装未形成同一闭环。
 - 已定位指标事实缺口：双语标签只在 HTML 层临时派生，数据、Excel 和证据卡没有统一字段。
 - 已实现 Windows 标准/扩展资产 manifest、路径/大小/SHA-256/许可证校验和只读 `windows-assets` CLI。
+- 已实现本地离线资产、内网镜像、公网源三级回退安装器，支持打包 Python、wheelhouse、Chromium 和 Argos 英中模型。
+- 已修复 Windows 翻译模型安装依赖裸 `argospm` PATH 的问题，改用 Argos Python API 或显式本地模型路径。
+- doctor 已增加 Windows 安装状态、manifest 版本、资产来源和失败记录检查。
 
 ## 已验证
 
 - 设计文档已通过回读与 `git diff --check`，提交为 `5a05f7a`。
 - Task 1：`7 passed`；Ruff、compileall 和 `git diff --check` 通过。
+- Task 2：`35 passed`；Ruff、compileall、manifest CLI 和 `git diff --check` 通过。
 
 ## 待办
 
-- 实现离线优先、内网/公网回退安装器。
 - 实现指标事实双语数据和三端展示。
 - 更新 Skill、版本、文档和发布验证记录。
 - 在干净 Windows 10/11 主机做最终离线安装验收。
 
 ## 下一步
 
-按实施计划执行 Task 2：Windows 离线安装与来源回退。
+按实施计划执行 Task 3：指标事实双语数据与三端展示。

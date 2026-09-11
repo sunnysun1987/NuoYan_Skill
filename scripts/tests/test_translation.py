@@ -213,5 +213,83 @@ def test_setup_translation_engine_can_skip_model_download_when_package_installed
     assert "next_step_zh" in result
 
 
+def test_setup_translation_engine_installs_verified_local_model_before_network(
+    tmp_path: Path,
+    monkeypatch,
+):
+    model_path = tmp_path / "translate-en_zh.argosmodel"
+    model_path.write_bytes(b"verified-local-model")
+    readiness = {"ready": False}
+    installed_paths = []
+
+    monkeypatch.setattr(
+        "ivd_research.translation.importlib.util.find_spec",
+        lambda _name: object(),
+    )
+    monkeypatch.setattr(TranslationEngine, "argos_installed", lambda _self: True)
+    monkeypatch.setattr(
+        TranslationEngine,
+        "argos_ready",
+        lambda _self: readiness["ready"],
+    )
+
+    def install_local(path: Path):
+        installed_paths.append(path)
+        readiness["ready"] = True
+
+    monkeypatch.setattr(
+        "ivd_research.translation.install_argos_model_from_path",
+        install_local,
+    )
+
+    def forbid_subprocess(*_args, **_kwargs):
+        raise AssertionError("a ready local model must prevent network fallback")
+
+    monkeypatch.setattr("ivd_research.translation.subprocess.run", forbid_subprocess)
+
+    result = setup_translation_engine(model_path=model_path)
+
+    assert result["status"] == "ready"
+    assert result["model_source"] == str(model_path)
+    assert installed_paths == [model_path]
+
+
+def test_setup_translation_engine_uses_python_api_instead_of_argospm_path(monkeypatch):
+    readiness = {"ready": False}
+    index_calls = []
+
+    monkeypatch.setattr(
+        "ivd_research.translation.importlib.util.find_spec",
+        lambda _name: object(),
+    )
+    monkeypatch.setattr(TranslationEngine, "argos_installed", lambda _self: True)
+    monkeypatch.setattr(
+        TranslationEngine,
+        "argos_ready",
+        lambda _self: readiness["ready"],
+    )
+
+    def install_from_index():
+        index_calls.append("en-zh")
+        readiness["ready"] = True
+        return Path("downloaded.argosmodel")
+
+    monkeypatch.setattr(
+        "ivd_research.translation.install_argos_model_from_index",
+        install_from_index,
+    )
+
+    def forbid_subprocess(*_args, **_kwargs):
+        raise AssertionError("model installation must not depend on argospm in PATH")
+
+    monkeypatch.setattr("ivd_research.translation.subprocess.run", forbid_subprocess)
+
+    result = setup_translation_engine()
+
+    assert result["status"] == "ready"
+    assert result["model_source"] == "downloaded.argosmodel"
+    assert index_calls == ["en-zh"]
+
+
 def test_short_english_title_can_use_title_threshold():
     assert is_mostly_english("AD biomarker panel", min_ascii_letters=8)

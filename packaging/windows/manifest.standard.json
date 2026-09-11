@@ -5,6 +5,20 @@
   "release_ready": false,
   "assets": [
     {
+      "id": "python-runtime",
+      "version": "3.11.9-amd64",
+      "relative_path": "python/python-3.11.9-amd64.exe",
+      "size": 0,
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "license": "Python Software Foundation License; include official license text in built bundle",
+      "required": true,
+      "sources": [
+        {"type": "local", "path": "python/python-3.11.9-amd64.exe"},
+        {"type": "mirror", "url": "${NUOYAN_MIRROR_BASE_URL}/python/python-3.11.9-amd64.exe"},
+        {"type": "public", "url": "https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe"}
+      ]
+    },
+    {
       "id": "python-wheelhouse",
       "version": "locked-by-build",
       "relative_path": "python/wheelhouse.zip",

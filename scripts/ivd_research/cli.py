@@ -1182,9 +1182,17 @@ def translation_status_command(
 def setup_translation_engine_command(
     provider: str = typer.Option("argos", "--provider", help="安装/检查翻译引擎；当前自动安装支持 argos。"),
     skip_model: bool = typer.Option(False, "--skip-model", help="只安装 Python 依赖，不自动下载/安装离线模型。"),
+    model_path: Optional[Path] = typer.Option(None, "--model-path", exists=True, dir_okay=False),
     json_output: bool = typer.Option(False, "--json"),
 ) -> None:
-    emit(setup_translation_engine(provider=provider, install_model=not skip_model), json_output)
+    emit(
+        setup_translation_engine(
+            provider=provider,
+            install_model=not skip_model,
+            model_path=model_path,
+        ),
+        json_output,
+    )
 
 
 @app.command("verify-package")
