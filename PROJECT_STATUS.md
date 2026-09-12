@@ -32,12 +32,12 @@
 - Task 3：`85 passed`；Ruff、compileall、模板一致性和 `git diff --check` 通过。
 - 浏览器视觉验收：桌面端与 375px 移动端控制台 0 错误；移动端 body/viewport 为 375/375，指标表内部滚动宽度 1056px。
 - 发布级本地验证：236 passed、1 skipped；Ruff、compileall、diff 检查和 2.3.0 wheel 资源检查通过；core doctor `ok=true`。
+- 用户级安装验证：旧目录已备份至 `/Users/sunjing/.codex/skills/nuoyan-skill-v2.backup-20260912-150445`；标准目录已同步提交 `fe16709`；editable 元数据为 `2.3.0`；安装目录全量测试 `236 passed, 1 skipped`；core doctor `ok=true`。
 
 ## 待办
 
 - 在干净 Windows 10/11 主机做最终离线安装验收。
-- 从已提交 Git 内容同步并验证用户级 Skill 安装目录。
 
 ## 下一步
 
-提交 2.3.0 版本修改，然后同步用户级安装目录并完成收尾验证。
+Windows 离线 ZIP 构建和干净 Windows 10/11 验收仍需在 Windows 主机完成；其余本地和用户级同步工作已完成。
