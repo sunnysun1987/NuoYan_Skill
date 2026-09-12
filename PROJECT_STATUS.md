@@ -21,6 +21,8 @@
 - 指标事实已增加中英文指标名、中文解释、数值解释、中文摘录和翻译状态，并贯通 HTML、Excel、Markdown 证据卡。
 - 翻译命令已覆盖指标摘录缓存；混合中英文摘录不会再误判为“原文已是中文”。
 - HTML 指标表使用独立横向滚动容器，移动端不再撑宽整页，证据卡 ID 不断词。
+- Skill、README、Windows 安装指南、报告规则、CLI 契约和发布清单已同步为 2.3.0 行为。
+- Windows 标准离线运行时固定为官方 Python 3.13.15；Java/Node 保持可选扩展。
 
 ## 已验证
 
@@ -29,12 +31,13 @@
 - Task 2：`35 passed`；Ruff、compileall、manifest CLI 和 `git diff --check` 通过。
 - Task 3：`85 passed`；Ruff、compileall、模板一致性和 `git diff --check` 通过。
 - 浏览器视觉验收：桌面端与 375px 移动端控制台 0 错误；移动端 body/viewport 为 375/375，指标表内部滚动宽度 1056px。
+- 发布级本地验证：236 passed、1 skipped；Ruff、compileall、diff 检查和 2.3.0 wheel 资源检查通过；core doctor `ok=true`。
 
 ## 待办
 
-- 更新 Skill、版本、文档和发布验证记录。
 - 在干净 Windows 10/11 主机做最终离线安装验收。
+- 从已提交 Git 内容同步并验证用户级 Skill 安装目录。
 
 ## 下一步
 
-按实施计划执行 Task 4：Skill、文档、版本和发布验证。
+提交 2.3.0 版本修改，然后同步用户级安装目录并完成收尾验证。

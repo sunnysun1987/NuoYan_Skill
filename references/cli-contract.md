@@ -4,6 +4,7 @@ CLI 命令由 agent 调用：
 
 - `nuoyan doctor --json`
 - `nuoyan doctor --network --json`
+- `nuoyan windows-assets --manifest <manifest.json> [--asset-root <dir>] [--strict] --json`
 - `nuoyan init-task --topic <topic> --json`
 - `nuoyan show-status --task-id <task_id> --json`
 - `nuoyan update-confirmations --task-id <task_id> --values-json <json> --json`
@@ -36,7 +37,7 @@ CLI 命令由 agent 调用：
 - `nuoyan build-report --task-id <task_id> --type feasibility --json`
 - `nuoyan translate-materials --task-id <task_id> --json`
 - `nuoyan translation-status --task-id <task_id> --json`
-- `nuoyan setup-translation-engine --provider argos|libretranslate|openai --json`
+- `nuoyan setup-translation-engine --provider argos [--model-path <approved.argosmodel>] --json`
 - `nuoyan build-standard-delivery --task-id <task_id> --json`
 - `nuoyan verify-package --task-id <task_id> --json`
 - `nuoyan package-task --task-id <task_id> --json`
@@ -51,7 +52,13 @@ CLI 命令由 agent 调用：
 
 不要让非 IT 业务用户直接阅读 JSON；agent 应把 JSON 转成中文状态说明。
 
-## V2.2 门禁契约
+## V2.3 门禁契约
+
+- Windows 标准环境使用 release manifest 记录 Python、wheelhouse、Chromium 和 Argos 英中模型的版本、大小、SHA-256、许可证和来源。本地离线资产优先于内网镜像，内网镜像优先于公网源。
+- `windows-assets --strict` 用于发布和安装前校验；模板 manifest 的 `release_ready=false` 不是正式发布清单。
+- `doctor --profile standard` 检查 `.nuoyan/install-state.json`，但安装记录不能替代 Chromium 可启动性和 Argos 模型可用性实测。
+- Java/Node 是可选扩展资产，除非未来具体功能及其 manifest 显式声明，否则不得作为标准安装或 `standard_ready` 的必需项。
+- 指标事实在 `translate-materials` 中使用字段 `metric:<metric_fact_id>` 写入翻译缓存；报告渲染只读缓存，翻译失败时保留英文原文和明确状态。
 
 - `run-scenario` 执行正式来源场景前会检查检索画像；缺少必要确认项时返回 `needs_confirmation` 并以退出码 2 停止。
 - `doctor --network` 用于正式公网采集前的网络体检，必须区分 Python DNS、Python HTTPS 和系统 curl 通道。

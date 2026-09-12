@@ -34,6 +34,8 @@
 - `PYTHONPATH=scripts python3 -m ivd_research.cli doctor --strict --json --output-root <可写验收目录>`
 - 核对 `pyproject.toml`、`WORKFLOW_VERSION`、README 和安装测试中的版本一致。
 - 核对根目录模板与 Python 包内模板完全一致。
+- 在 Windows 构建机生成标准离线资产 ZIP；校验 release manifest 无全零哈希、实际大小匹配、SHA-256 匹配且第三方许可证清单已审阅。
+- 在断网 Windows 10/11 干净环境用标准 ZIP 安装；再在缺少单个本地资产时验证内网/公网回退和 `-VerifyOnly` 只读行为。
 
 ## 5. 真实项目回归
 

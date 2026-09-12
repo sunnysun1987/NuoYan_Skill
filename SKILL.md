@@ -38,7 +38,8 @@ description: 用于 IVD 企业研发人员开展研发项目调研，组织调�
 - 文献摘要不只在原始 JSON 中保留。HTML 报告、Excel 文献检索表和 Markdown 证据卡都必须展示结构化 Abstract 分段；如果来源只给出非结构化摘要，也要标注为 Abstract，而不是截成一段无法审阅的短文本。
 - 英文材料保留完整原文和结构化摘要；AUC、灵敏度、特异性、cut-off、CI、样本量等另列参数要点。
 - 交付前先运行 `translation-status`。引擎可用时显式运行 `translate-materials`，再生成报告；报告渲染只读缓存，不发起翻译或网络请求。
-- 翻译能力缺失时，主动说明影响并提示安装诺研翻译插件组件；不得把账号、API Key 或手工命令配置转嫁给研发用户。
+- `translate-materials` 必须同时生成文献阅读和指标事实摘录的中文缓存；指标事实保留中文指标名、English label、中文解释、中文速读、英文原文和翻译状态等中英文字段，HTML、Excel 与 Markdown 证据卡字段一致。
+- 翻译能力缺失时，主动说明影响并由 agent 或 IT 运行诺研 Windows 标准安装器修复；不得让研发用户另行寻找翻译器、配置账号/API Key 或执行手工命令。
 - HTML 报告页面标题不得只写成“可行性调研报告”，也不得保留“立项”作为展示标题词。标准交付报告的浏览器标题和 H1 应统一使用“XX项目调研分析综述”这类更宽口径标题；文件名 `00_立项调研综合报告.html` 可保持稳定，避免破坏既有交付目录链接。
 - HTML 主报告采用研发筛选工作台；页签、目录、筛选器、证据锚点和字段规格读取 `references/report-rules.md`。
 - 报告把采集异常转为业务可读的缺口清单；具体展示和公开兜底规则读取 `references/report-rules.md`。
@@ -115,7 +116,7 @@ nuoyan verify-package --task-id <task_id> --json
 
 优先使用 `scripts/ivd_research` 下的 CLI 和工具函数处理可重复、可验证的文件生成任务。CLI 是 agent 的内部工具，用户只需要接收结果文件和结论摘要。
 
-Windows 标准安装使用 Skill 目录内的独立运行时。Agent 必须优先调用 `.venv\Scripts\nuoyan.exe`，不得假定系统 PATH 中的 `nuoyan`、Python 包、Playwright 浏览器或翻译模型已经存在。正式调研前运行 `.venv\Scripts\nuoyan.exe doctor --profile standard --network --strict --json`；未达到 `standard_ready=true` 时，先报告实际缺失项并完成环境修复，不得以聊天回答替代标准流水线输出。安装和更新方式见 `docs/windows-standard-environment.md`。
+Windows 标准安装使用 Skill 目录内的独立运行时和 manifest 校验资产。Agent 必须优先调用 `.venv\Scripts\nuoyan.exe`，不得假定系统 PATH 中的 `nuoyan`、Python 包、Playwright 浏览器或翻译模型已经存在。安装器按本地离线资产、企业内网镜像、官方公网源的顺序解析组件；Java/Node 仅在被具体功能声明需要时安装，不属于当前标准门禁。正式调研前运行 `.venv\Scripts\nuoyan.exe doctor --profile standard --network --strict --json`；未达到 `standard_ready=true` 时，先报告实际缺失项并完成环境修复，不得以聊天回答替代标准流水线输出。安装和更新方式见 `docs/windows-standard-environment.md`。
 
 CLI 或脚本失败时，不要掩盖失败，不要编造结果。应说明失败步骤、已完成内容、未完成内容、错误信息摘要和可继续的最小下一步。
 

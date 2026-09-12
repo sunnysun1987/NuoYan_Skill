@@ -30,7 +30,9 @@ python3 -m pip install -e ".[browser,pdf,ocr,dev]"
 
 ### Windows company workstations
 
-Windows business workstations should not reuse an arbitrary system Python environment. IT or Codex should run the repository's `install-windows.ps1`, which installs the skill at `%USERPROFILE%\.codex\skills\nuoyan-skill-v2`, creates a private `.venv`, installs the browser/PDF/translation components, installs Chromium, checks the Argos English-to-Chinese model, and runs the strict standard-environment doctor.
+Windows business workstations should not reuse an arbitrary system Python environment. V2.3.0 provides an offline-first C-strategy installer: it resolves verified assets from an adjacent standard asset bundle, then an IT-managed mirror, then approved public sources. The standard bundle covers Python 3.13, the Windows wheelhouse, Playwright Chromium and the Argos English-to-Chinese model. Java and Node remain optional extension assets because the current runtime does not call them.
+
+IT or Codex runs `install-windows.ps1`, which installs the skill at `%USERPROFILE%\.codex\skills\nuoyan-skill-v2`, creates a private `.venv`, records asset source/version/SHA-256 in `.nuoyan\install-state.json`, and runs the strict standard-environment doctor. A release bundle is built on Windows with `packaging\windows\build-assets.ps1`; large binary assets are release artifacts and are not committed to Git.
 
 Business users do not run shell commands. Give Codex the copyable Chinese request and follow the app-plugin steps in [Windows 标准调研环境安装与使用](docs/windows-standard-environment.md).
 
@@ -148,14 +150,14 @@ The source remains open while its phase is `awaiting_user_search` or `awaiting_i
 
 Professional Chinese reading support is built into this repository as a delivery-time capability. R&D users should receive an HTML report that already contains Chinese reading text; they do not need to run translation commands or configure accounts:
 
-- Recommended offline engine: [Argos Translate](https://github.com/argosopentech/argos-translate), an open-source offline translation library. Install `argostranslate` and import an English→Chinese model once on the standard R&D workstation image.
-- `nuoyan setup-translation-engine --provider argos --json` installs/checks the optional Argos Python dependency and attempts to install the English→Chinese offline model. Use `--skip-model` when IT wants to install model files separately.
+- Recommended offline engine: [Argos Translate](https://github.com/argosopentech/argos-translate), an open-source offline translation library. The Windows standard asset bundle carries the approved dependency and English→Chinese model so R&D users do not install them separately.
+- `nuoyan setup-translation-engine --provider argos --model-path <approved.argosmodel> --json` installs a verified local model without relying on `argospm` in PATH. Without `--model-path`, the agent/IT path may use the Argos package index as a fallback.
 - Translation is an explicit pre-delivery step: run `nuoyan translation-status --task-id <task_id> --json`, then `nuoyan translate-materials --task-id <task_id> --json` when an engine is ready. Report and delivery rendering only read `data/translations.jsonl`; they never start translation or network calls.
 - `nuoyan translation-status --task-id <task_id> --json` is an internal agent/maintainer check, not a user-facing R&D operation.
 - HTML reports prioritize Chinese titles and “专业中文阅读”; original English remains visible for traceability.
 - Evidence excerpts are rendered as reading blocks. Source, query, title, authors, journal/source and Abstract text are separated, and Chinese reading text is split into short paragraphs for review.
 - The standard HTML report uses product-style reading navigation. Project analysis keeps a persistent left-side chapter directory with clear click targets, and reading-entry metric cards include a business definition plus a click-through target for evidence maps, evidence cards, core papers, gaps and metric facts.
-- Metric facts are rendered as a standalone top-level tab with a searchable evidence table. Users can combine global search with field-specific filters for metric type, value, material title, evidence card, sample type and platform/method. Materials link to source titles, and evidence-card links switch to the full evidence-card tab and anchor the matching card.
+- Metric facts are rendered as a standalone top-level bilingual tab with Chinese metric names, English labels, Chinese explanations, translated excerpts, expandable English originals and translation status. HTML, Excel and Markdown evidence cards share this field contract, and users can search in either language.
 - Project-analysis chapters include a paginated evidence-basis table with source-title links, original supporting excerpts and evidence-card anchors, so expert reviewers can trace each analysis section back to materials. The data layer must keep the full matched evidence list; pagination is only a reading control, not a backend truncation rule.
 - Validated `data/report_sections.jsonl` chapters are merged into the standard six-tab workbench. They replace only the matching 17 project-analysis chapter content; they must not replace the main HTML or remove the R&D reading, metric facts, core literature, all evidence cards or evidence-gap tabs.
 - The “first read” decision block is written as an R&D expert gate review: decision confidence, product positioning, validation focus, evidence readout and next gate are shown instead of a shallow one-line conclusion.
@@ -170,6 +172,8 @@ Core fields are `delivery_artifacts_ready`, `v21_assets_ready`, `final_review_re
 
 `business_ready=true` requires more than generated files. The package must have confirmed search scope, complete source coverage or documented fallback, source-site and knowledge assets, reviewed evidence cards, reviewed claim-level evidence links, resolved conflicts, two distinct saturation audits, and a valid standard delivery folder.
 
+V2.3.0 adds manifest-verified Windows offline assets with local/mirror/public fallback, removes the fragile `argospm` PATH dependency, records install provenance for doctor checks, and delivers bilingual metric facts across HTML, Excel and Markdown. Java/Node are optional extensions rather than inflated standard prerequisites.
+
 V2.2.2 fixes four release regressions found in real project replay: interrupted long pipelines now persist each completed scenario, the “全部证据卡” workbench includes relevance-excluded cards for audit, `delivery_artifacts_ready` no longer conflates missing evidence with missing files, and PatentHub login restrictions carry an executable browser补证 action. V2.2.1 fixes standard-report integration so validated `report_sections.jsonl` content replaces only the matching project-analysis chapters while preserving the R&D reading, metric facts, core literature, all evidence cards and evidence-gap tabs.
 
 V2.2.0 adds claim-level traceability, contradiction preservation, source independence checks, research saturation state, data-boundary routing and search-result evidence downgrading. The HTML gap tab, Excel review workbook and trace package expose the same research-integrity audit used by `verify-package`.
@@ -180,7 +184,7 @@ V2.1.11 adds an opt-in real-network acceptance test for OpenAlex and PubMed, all
 
 The GitHub audit candidate's reproducible execution scope and known business-readiness limits are recorded in [the V2.1.11 live validation summary](audit/v2.1.11-live-validation.md). The summary intentionally does not claim that restricted regulatory, patent or Chinese-journal scenarios are business-ready.
 
-The V2.2.2 regression, clean-install, CLI, installed-skill and live-public-source checks are recorded in [the V2.2.2 release validation](audit/v2.2.2-release-validation.md). It does not replace project-specific business readiness or Windows workstation acceptance.
+The V2.3.0 deterministic and visual checks are recorded in [the V2.3.0 release validation](audit/v2.3.0-release-validation.md). Clean Windows offline installation remains an explicit manual acceptance boundary until the release ZIP is built and tested on Windows 10/11.
 
 V2.1.10 aligns the skill instructions with the registered `nuoyan` CLI, makes report and delivery rendering translation-cache-only, fails closed when optional function signatures cannot be inspected, preserves partial query failures as `completed_with_warnings`, and makes delivery artifacts plus V2.1 knowledge assets explicit `business_ready` gates. CLI references, scenario documentation, report rules and the nine verification fields now share one contract.
 

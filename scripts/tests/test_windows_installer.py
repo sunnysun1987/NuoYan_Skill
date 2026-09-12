@@ -87,6 +87,17 @@ def test_windows_runtime_is_documented_for_agent_not_business_user():
 def test_windows_environment_release_has_distinct_version():
     project = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
 
-    assert project["project"]["version"] == "2.2.2"
-    assert "v2.2.2" in WORKFLOW_VERSION
-    assert "V2.2.2" in (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    skill = (REPO_ROOT / "SKILL.md").read_text(encoding="utf-8")
+    guide = (REPO_ROOT / "docs" / "windows-standard-environment.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert project["project"]["version"] == "2.3.0"
+    assert "v2.3.0" in WORKFLOW_VERSION
+    assert "V2.3.0" in readme
+    assert "本地离线资产" in skill
+    assert "指标事实" in skill and "中英文" in skill
+    assert "标准离线资产包" in guide
+    assert "Java/Node" in guide and "可选" in guide
+    assert "windows-assets" in guide

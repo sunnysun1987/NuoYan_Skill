@@ -212,17 +212,17 @@ if ($Manifest.release_ready -eq $true) {
 $BasePython = ""
 $PythonLauncher = Get-Command py.exe -ErrorAction SilentlyContinue
 if ($PythonLauncher) {
-    $BasePython = (& $PythonLauncher.Source -3.11 -c "import sys; print(sys.executable)" 2>$null | Select-Object -Last 1)
+    $BasePython = (& $PythonLauncher.Source -3.13 -c "import sys; print(sys.executable)" 2>$null | Select-Object -Last 1)
 }
 if (-not $BasePython -and $ResolvedAssets.ContainsKey("python-runtime")) {
-    Write-Step "Installing the bundled Python 3.11 runtime"
+    Write-Step "Installing the bundled Python 3.13 runtime"
     Invoke-Native $ResolvedAssets["python-runtime"].path @(
         "/quiet", "InstallAllUsers=0", "Include_launcher=1", "Include_pip=1", "PrependPath=0"
     )
-    $BasePython = Join-Path $env:LocalAppData "Programs\Python\Python311\python.exe"
+    $BasePython = Join-Path $env:LocalAppData "Programs\Python\Python313\python.exe"
 }
 if (-not $BasePython -or -not (Test-Path $BasePython)) {
-    Stop-Install "Python 3.11 is unavailable. Use a release asset bundle or ask IT to install the approved runtime."
+    Stop-Install "Python 3.13 is unavailable. Use a release asset bundle or ask IT to install the approved runtime."
 }
 
 if ($PackageRoot -ne $ResolvedInstallRoot) {
@@ -299,7 +299,7 @@ if (-not $ResolvedAssets.ContainsKey("python-runtime")) {
         path = $BasePython
         source_type = "system"
         sha256 = ""
-        version = "3.11"
+        version = "3.13"
         attempts = @()
     }
 }

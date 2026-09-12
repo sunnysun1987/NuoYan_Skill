@@ -21,25 +21,25 @@ foreach ($Path in @($StageRoot, $BundleRoot)) {
 
 $Wheelhouse = Join-Path $StageRoot "wheelhouse"
 New-Item -ItemType Directory -Force -Path $Wheelhouse | Out-Null
-& $PythonExe -3.11 -m pip download --dest $Wheelhouse "${PackageRoot}[browser,pdf,translation]"
+& $PythonExe -3.13 -m pip download --dest $Wheelhouse "${PackageRoot}[browser,pdf,translation]"
 if ($LASTEXITCODE -ne 0) { throw "pip download failed" }
-& $PythonExe -3.11 -m pip wheel --no-deps --wheel-dir $Wheelhouse $PackageRoot
+& $PythonExe -3.13 -m pip wheel --no-deps --wheel-dir $Wheelhouse $PackageRoot
 if ($LASTEXITCODE -ne 0) { throw "project wheel build failed" }
 
 $BrowserRoot = Join-Path $StageRoot "ms-playwright"
 $env:PLAYWRIGHT_BROWSERS_PATH = $BrowserRoot
-& $PythonExe -3.11 -m pip install playwright argostranslate
+& $PythonExe -3.13 -m pip install playwright argostranslate
 if ($LASTEXITCODE -ne 0) { throw "builder dependencies failed" }
-& $PythonExe -3.11 -m playwright install chromium
+& $PythonExe -3.13 -m playwright install chromium
 if ($LASTEXITCODE -ne 0) { throw "Playwright Chromium download failed" }
 
 if (-not $ArgosModelPath) {
-    $ArgosModelPath = (& $PythonExe -3.11 -c "import argostranslate.package as p; p.update_package_index(); x=next(x for x in p.get_available_packages() if x.from_code=='en' and x.to_code=='zh'); print(x.download())" | Select-Object -Last 1)
+    $ArgosModelPath = (& $PythonExe -3.13 -c "import argostranslate.package as p; p.update_package_index(); x=next(x for x in p.get_available_packages() if x.from_code=='en' and x.to_code=='zh'); print(x.download())" | Select-Object -Last 1)
 }
 if (-not (Test-Path $ArgosModelPath -PathType Leaf)) { throw "Argos model download failed" }
 
-$PythonInstaller = Join-Path $StageRoot "python-3.11.9-amd64.exe"
-Invoke-WebRequest -UseBasicParsing -Uri "https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe" -OutFile $PythonInstaller
+$PythonInstaller = Join-Path $StageRoot "python-3.13.15-amd64.exe"
+Invoke-WebRequest -UseBasicParsing -Uri "https://www.python.org/ftp/python/3.13.15/python-3.13.15-amd64.exe" -OutFile $PythonInstaller
 
 $AssetPaths = @{
     "python-runtime" = $PythonInstaller
