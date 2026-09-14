@@ -33,8 +33,9 @@
 - Task 3：`85 passed`；Ruff、compileall、模板一致性和 `git diff --check` 通过。
 - 浏览器视觉验收：桌面端与 375px 移动端控制台 0 错误；移动端 body/viewport 为 375/375，指标表内部滚动宽度 1056px。
 - 发布级本地验证：236 passed、1 skipped；Ruff、compileall、diff 检查和 2.3.0 wheel 资源检查通过；core doctor `ok=true`。
-- 用户级安装验证：旧目录已备份至 `/Users/sunjing/.codex/skills/nuoyan-skill-v2.backup-20260912-150445`；标准目录已同步提交 `fe16709`；editable 元数据为 `2.3.0`；安装目录全量测试 `236 passed, 1 skipped`；core doctor `ok=true`。
-- 用户级旧版备份已移至 `/Users/sunjing/.codex/backups/nuoyan-skill-v2.backup-20260912-150445`，避免被 Codex 重复识别为同名 Skill。
+- 用户级安装验证：旧目录保存在 `/Users/sunjing/.codex/backups/nuoyan-skill-v2.backup-20260912-150445`；标准目录已同步提交 `fe16709`；editable 元数据为 `2.3.0`；安装目录全量测试 `236 passed, 1 skipped`；core doctor `ok=true`。备份位于 Skill 发现目录之外，不会被识别为同名 Skill。
+- Windows 3.13 64 位 Argos 依赖预检已下载 64 个官方 PyPI wheel，共约 206 MB，包含 `ctranslate2`、`torch`、`spacy` 等关键二进制依赖。
+- Windows 验证交接包已生成：`packages/nuoyan-windows-validation-2.3.0.zip`，SHA-256 为 `30c81676c39b2121382c6e5c9ad2cdafc6389b73307622dc151588877f9b4c0e`。
 
 ## 待办
 
@@ -42,4 +43,4 @@
 
 ## 下一步
 
-生成 Windows 验证交接包，交由 Windows 构建机和干净目标机完成离线资产构建与安装验收。
+将 Windows 验证交接包交由 Windows 构建机和干净目标机完成离线资产构建与安装验收。
