@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$PythonExe = "py.exe",
-    [string]$ReleaseVersion = "2.3.1",
+    [string]$ReleaseVersion = "2.3.2",
     [string]$OutputRoot = "$PSScriptRoot\dist",
     [string]$ArgosModelPath = ""
 )

@@ -2,7 +2,7 @@
 
 ## 当前目标
 
-发布诺研 Skill 2.3.1：通过 GitHub Releases 交付 Windows 完整离线安装包，并在指标事实环节提供中英双语速读。
+发布诺研 Skill 2.3.2：通过 GitHub Releases 交付 Windows 完整离线安装包，并在指标事实环节提供中英双语速读。
 
 ## 正式文件
 
@@ -22,11 +22,12 @@
 - 指标事实已增加中英文指标名、中文解释、数值解释、中文摘录和翻译状态，并贯通 HTML、Excel、Markdown 证据卡。
 - 翻译命令已覆盖指标摘录缓存；混合中英文摘录不会再误判为“原文已是中文”。
 - HTML 指标表使用独立横向滚动容器，移动端不再撑宽整页，证据卡 ID 不断词。
-- Skill、README、Windows 安装指南、报告规则、CLI 契约和发布清单已同步为 2.3.1 行为。
+- Skill、README、Windows 安装指南、报告规则、CLI 契约和发布清单已同步为 2.3.2 行为。
 - Windows 标准离线运行时固定为官方 Python 3.13.15；Java/Node 保持可选扩展。
 - GitHub Release 流水线可在 Windows Runner 构建标准资产包、源码包、完整离线安装包、SHA-256 清单和验证提示词。
 - Windows 官方 Python 已补充 `tzdata` 条件依赖；材料导入持久化路径已统一为跨平台正斜杠格式。
 - Argos English→Chinese 1.9 模型的 OPUS-MT、作者和 CC BY 4.0 署名已写入第三方许可证清单。
+- GitHub 校验清单固定使用 UTF-8 无 BOM 和 LF 换行，兼容 Windows、macOS 与 Linux 校验工具。
 
 ## 已验证
 
@@ -43,7 +44,7 @@
 
 ## 待办
 
-- 发布 `v2.3.1` GitHub Release，并在干净 Windows 10/11 主机做最终离线安装验收。
+- 发布 `v2.3.2` GitHub Release，并在干净 Windows 10/11 主机做最终离线安装验收。
 
 ## 下一步
 

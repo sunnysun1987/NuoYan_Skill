@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     branches:
-      - codex/v2.3.1-release
+      - codex/v2.3.2-release
     tags:
       - "v*"
 
@@ -112,7 +112,13 @@ jobs:
             $Hash = (Get-FileHash -LiteralPath $File -Algorithm SHA256).Hash.ToLowerInvariant()
             "$Hash  $([System.IO.Path]::GetFileName($File))"
           }
-          $Checksums | Set-Content -LiteralPath (Join-Path $ReleaseRoot "SHA256SUMS.txt") -Encoding utf8
+          $ChecksumText = ($Checksums -join "`n") + "`n"
+          $Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+          [System.IO.File]::WriteAllText(
+            (Join-Path $ReleaseRoot "SHA256SUMS.txt"),
+            $ChecksumText,
+            $Utf8NoBom
+          )
 
       - name: Publish GitHub release
         if: github.ref_type == 'tag'

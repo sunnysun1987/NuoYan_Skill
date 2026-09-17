@@ -2,7 +2,7 @@
 setlocal
 
 set "PACKAGE_ROOT=%~dp0nuoyan-skill-v2"
-set "ASSET_BUNDLE=%~dp0nuoyan-windows-standard-assets-2.3.1.zip"
+set "ASSET_BUNDLE=%~dp0nuoyan-windows-standard-assets-2.3.2.zip"
 
 if not exist "%PACKAGE_ROOT%\install-windows.ps1" (
   echo Nuoyan source package is missing: %PACKAGE_ROOT%

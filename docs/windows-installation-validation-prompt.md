@@ -1,22 +1,22 @@
-# 诺研 Skill 2.3.1 Windows 安装验证提示词
+# 诺研 Skill 2.3.2 Windows 安装验证提示词
 
-从 [GitHub Releases 最新版本](https://github.com/sunnysun1987/NuoYan_Skill/releases/latest) 下载 `nuoyan-windows-offline-installer-2.3.1.zip`、`SHA256SUMS.txt` 和 `WINDOWS_VALIDATION_PROMPT.md`。把文件放到 Windows 10/11 64 位电脑，在 `C:\NuoyanValidation` 完整解压安装包，再把下面整段提示词发送给 Windows 环境中的 Codex。
+从 [GitHub Releases 最新版本](https://github.com/sunnysun1987/NuoYan_Skill/releases/latest) 下载 `nuoyan-windows-offline-installer-2.3.2.zip`、`SHA256SUMS.txt` 和 `WINDOWS_VALIDATION_PROMPT.md`。把文件放到 Windows 10/11 64 位电脑，在 `C:\NuoyanValidation` 完整解压安装包，再把下面整段提示词发送给 Windows 环境中的 Codex。
 
 ## 可复制提示词
 
 ```text
-请执行“诺研 Skill 2.3.1 Windows 标准环境安装验证”。你负责运行命令、保存证据并给出结论，不要让我手工输入命令。
+请执行“诺研 Skill 2.3.2 Windows 标准环境安装验证”。你负责运行命令、保存证据并给出结论，不要让我手工输入命令。
 
 验证材料位于 C:\NuoyanValidation。先查找：
 1. nuoyan-skill-v2 源码目录；
 2. SHA256SUMS.txt；
-3. nuoyan-windows-standard-assets-2.3.1.zip；
+3. nuoyan-windows-standard-assets-2.3.2.zip；
 4. INSTALL_NUOYAN.cmd；
 5. nuoyan-skill-v2\install-windows.ps1；
 6. nuoyan-skill-v2\docs\windows-standard-environment.md。
 
 验证目标：
-- 确认源码包版本为 2.3.1，工作流版本为“诺研_skill-code-v2.3.1-2026-09-17”；
+- 确认源码包版本为 2.3.2，工作流版本为“诺研_skill-code-v2.3.2-2026-09-17”；
 - 确认 GitHub Release 完整安装包包含 Python 3.13.15、Python wheelhouse、Playwright Chromium、Argos Translate 英中模型；
 - 在干净 Windows 10/11 64 位环境验证断网安装；
 - 确认 Argos 英中模型可实际翻译，不接受“Python 包已安装但模型缺失”；
@@ -41,8 +41,8 @@
 4. 检查 Codex 中 Life Science Research、Browser、Chrome 插件是否安装并启用。插件缺失时记录为应用配置问题，不伪装成安装器缺陷。
 
 二、GitHub Release 安装包检查
-1. 使用 SHA256SUMS.txt 校验 `nuoyan-windows-offline-installer-2.3.1.zip`，并记录校验结果。
-2. 确认完整解压后的根目录包含 `INSTALL_NUOYAN.cmd`、`README_FIRST.md`、`nuoyan-skill-v2` 和 `nuoyan-windows-standard-assets-2.3.1.zip`。
+1. 使用 SHA256SUMS.txt 校验 `nuoyan-windows-offline-installer-2.3.2.zip`，并记录校验结果。
+2. 确认完整解压后的根目录包含 `INSTALL_NUOYAN.cmd`、`README_FIRST.md`、`nuoyan-skill-v2` 和 `nuoyan-windows-standard-assets-2.3.2.zip`。
 3. 检查标准资产 ZIP 内含：
    - manifest.standard.release.json
    - python\python-3.13.15-amd64.exe
@@ -72,7 +72,7 @@
 四、干净环境断网安装
 优先使用另一台干净 Windows 10/11 电脑、干净虚拟机或 Windows Sandbox。把完整解压后的安装包目录复制进去，然后断开网络。确认 `INSTALL_NUOYAN.cmd` 指向包内源码目录和标准资产 ZIP；自动化记录日志时可执行其对应的 PowerShell 命令：
 1. 在源码根目录执行：
-   powershell.exe -ExecutionPolicy Bypass -File C:\NuoyanValidation\nuoyan-skill-v2\install-windows.ps1 -AssetBundle C:\NuoyanValidation\nuoyan-windows-standard-assets-2.3.1.zip
+   powershell.exe -ExecutionPolicy Bypass -File C:\NuoyanValidation\nuoyan-skill-v2\install-windows.ps1 -AssetBundle C:\NuoyanValidation\nuoyan-windows-standard-assets-2.3.2.zip
 2. 安装器结束后检查标准目录：
    %USERPROFILE%\.codex\skills\nuoyan-skill-v2
 3. 必须存在：

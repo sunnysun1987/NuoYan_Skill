@@ -8,7 +8,7 @@ Skill name policy: the Codex loading ID is fixed as `nuoyan-skill-v2`. Keep it l
 
 ### Windows 10/11
 
-Open the [latest GitHub Release](https://github.com/sunnysun1987/NuoYan_Skill/releases/latest), download `nuoyan-windows-offline-installer-2.3.1.zip`, fully extract it, and double-click `INSTALL_NUOYAN.cmd`. The package installs the Skill, its private Python 3.13 environment, PDF dependencies, Playwright Chromium and the Argos English-to-Chinese model. Git, Python, Node and Java do not need to be preinstalled.
+Open the [latest GitHub Release](https://github.com/sunnysun1987/NuoYan_Skill/releases/latest), download `nuoyan-windows-offline-installer-2.3.2.zip`, fully extract it, and double-click `INSTALL_NUOYAN.cmd`. The package installs the Skill, its private Python 3.13 environment, PDF dependencies, Playwright Chromium and the Argos English-to-Chinese model. Git, Python, Node and Java do not need to be preinstalled.
 
 After installation, enable Life Science Research, Browser and Chrome in the Codex plugin manager, restart Codex, and keep the command-window output if the strict environment check does not reach `standard_ready=true`. Detailed instructions are in [Windows 标准调研环境安装与使用](docs/windows-standard-environment.md).
 
@@ -38,7 +38,7 @@ python3 -m pip install -e ".[browser,pdf,ocr,dev]"
 
 ### Windows company workstations
 
-Windows business workstations should not reuse an arbitrary system Python environment. V2.3.1 provides an offline-first C-strategy installer: it resolves verified assets from an adjacent standard asset bundle, then an IT-managed mirror, then approved public sources. The standard bundle covers Python 3.13, the Windows wheelhouse, Playwright Chromium and the Argos English-to-Chinese model. Java and Node remain optional extension assets because the current runtime does not call them.
+Windows business workstations should not reuse an arbitrary system Python environment. V2.3.2 provides an offline-first C-strategy installer: it resolves verified assets from an adjacent standard asset bundle, then an IT-managed mirror, then approved public sources. The standard bundle covers Python 3.13, the Windows wheelhouse, Playwright Chromium and the Argos English-to-Chinese model. Java and Node remain optional extension assets because the current runtime does not call them.
 
 `INSTALL_NUOYAN.cmd` calls `install-windows.ps1`, installs the skill at `%USERPROFILE%\.codex\skills\nuoyan-skill-v2`, creates a private `.venv`, records asset source/version/SHA-256 in `.nuoyan\install-state.json`, and runs the strict standard-environment doctor. GitHub Actions builds the verified release bundle on Windows from `packaging\windows\build-assets.ps1`; large binary assets are GitHub Release artifacts and are not committed to Git.
 
@@ -180,7 +180,7 @@ Core fields are `delivery_artifacts_ready`, `v21_assets_ready`, `final_review_re
 
 `business_ready=true` requires more than generated files. The package must have confirmed search scope, complete source coverage or documented fallback, source-site and knowledge assets, reviewed evidence cards, reviewed claim-level evidence links, resolved conflicts, two distinct saturation audits, and a valid standard delivery folder.
 
-V2.3.1 publishes the V2.3 Windows offline installer through GitHub Releases and adds the Windows-only IANA timezone dependency plus portable material paths found by the Windows build gate. It retains manifest-verified local/mirror/public fallback, removes the fragile `argospm` PATH dependency, records install provenance for doctor checks, and delivers bilingual metric facts across HTML, Excel and Markdown. Java/Node are optional extensions rather than inflated standard prerequisites.
+V2.3.2 publishes the V2.3 Windows offline installer through GitHub Releases, writes a cross-platform LF SHA-256 manifest, and includes the Windows-only IANA timezone dependency plus portable material paths found by the Windows build gate. It retains manifest-verified local/mirror/public fallback, removes the fragile `argospm` PATH dependency, records install provenance for doctor checks, and delivers bilingual metric facts across HTML, Excel and Markdown. Java/Node are optional extensions rather than inflated standard prerequisites.
 
 V2.2.2 fixes four release regressions found in real project replay: interrupted long pipelines now persist each completed scenario, the “全部证据卡” workbench includes relevance-excluded cards for audit, `delivery_artifacts_ready` no longer conflates missing evidence with missing files, and PatentHub login restrictions carry an executable browser补证 action. V2.2.1 fixes standard-report integration so validated `report_sections.jsonl` content replaces only the matching project-analysis chapters while preserving the R&D reading, metric facts, core literature, all evidence cards and evidence-gap tabs.
 

@@ -311,7 +311,7 @@ if (-not $ResolvedAssets.ContainsKey("python-runtime")) {
 New-Item -ItemType Directory -Force -Path $StateRoot | Out-Null
 $State = [ordered]@{
     installed_at = [DateTimeOffset]::Now.ToString("o")
-    skill_version = "2.3.1"
+    skill_version = "2.3.2"
     manifest_version = [string]$Manifest.manifest_version
     manifest_path = $ManifestPath
     assets = $InstallRecords

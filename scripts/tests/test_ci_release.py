@@ -20,7 +20,7 @@ def test_release_workflow_builds_and_publishes_windows_downloads():
 
     assert "contents: write" in workflow
     assert "windows-latest" in workflow
-    assert "codex/v2.3.1-release" in workflow
+    assert "codex/v2.3.2-release" in workflow
     assert 'python-version: "3.13"' in workflow
     assert "name: Run tests" in workflow
     assert "name: Run Ruff" in workflow
@@ -35,6 +35,9 @@ def test_release_workflow_builds_and_publishes_windows_downloads():
     assert "nuoyan-windows-offline-installer-$Version.zip" in workflow
     assert "WINDOWS_VALIDATION_PROMPT.md" in workflow
     assert "SHA256SUMS.txt" in workflow
+    assert '$Checksums -join "`n"' in workflow
+    assert "WriteAllText" in workflow
+    assert "UTF8Encoding" in workflow
     assert "gh release upload" in workflow
     assert "--clobber" in workflow
     assert "if: github.ref_type == 'tag'" in workflow
