@@ -55,6 +55,7 @@ jobs:
             foreach ($Failure in $FailedTests) {
               $Name = "$($Failure.Node.classname)::$($Failure.Node.name)"
               "- $Name" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+              Write-Output "::error title=Windows pytest failed::$Name"
             }
           }
           exit $TestExitCode

@@ -30,6 +30,7 @@ def test_release_workflow_builds_and_publishes_windows_downloads():
     assert "wheel" in workflow
     assert "pytest-results.xml" in workflow
     assert "GITHUB_STEP_SUMMARY" in workflow
+    assert "::error title=Windows pytest failed::" in workflow
     assert "build-assets.ps1" in workflow
     assert "nuoyan-windows-offline-installer-$Version.zip" in workflow
     assert "WINDOWS_VALIDATION_PROMPT.md" in workflow
