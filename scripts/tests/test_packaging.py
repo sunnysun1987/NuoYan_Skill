@@ -1,6 +1,7 @@
 from pathlib import Path
 import subprocess
 import sys
+import tomllib
 from zipfile import ZipFile
 
 from ivd_research.reports import asset_root
@@ -16,6 +17,13 @@ EXPECTED_REPORT_ASSETS = {
     "templates/review-workbook-layout.md",
     "templates/standard-delivery-report.html",
 }
+
+
+def test_windows_runtime_declares_iana_timezone_database():
+    project = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    dependencies = project["project"]["dependencies"]
+
+    assert "tzdata; platform_system == 'Windows'" in dependencies
 
 
 def test_report_runtime_uses_package_local_assets():
@@ -61,4 +69,3 @@ def test_built_wheel_contains_report_assets(tmp_path: Path):
         f"ivd_research/assets/{relative_path}"
         for relative_path in EXPECTED_REPORT_ASSETS
     } <= names
-

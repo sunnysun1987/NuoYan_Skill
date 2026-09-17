@@ -15,6 +15,7 @@ dependencies = [
     "beautifulsoup4",
     "lxml",
     "httpx",
+    "tzdata; platform_system == 'Windows'",
 ]
 
 [project.scripts]
