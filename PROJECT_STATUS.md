@@ -41,10 +41,13 @@
 - Windows 3.13 64 位 Argos 依赖预检已下载 64 个官方 PyPI wheel，共约 206 MB，包含 `ctranslate2`、`torch`、`spacy` 等关键二进制依赖。
 - Windows 验证交接包已生成：`packages/nuoyan-windows-validation-2.3.0.zip`，SHA-256 为 `30c81676c39b2121382c6e5c9ad2cdafc6389b73307622dc151588877f9b4c0e`。
 - GitHub Windows 分支门禁通过：244 项测试、Ruff、compileall、diff check、标准资产构建和完整安装包组装全部成功。
+- `v2.3.2` GitHub Release 已发布；标签 CI 与 Windows Release 工作流均为 success。
+- 完整离线安装包为 `nuoyan-windows-offline-installer-2.3.2.zip`，大小 714,941,728 字节；标准资产包大小 714,236,065 字节。
+- 下载端检查确认 `SHA256SUMS.txt` 为 UTF-8 无 BOM、LF 换行；源码包和验证提示词哈希匹配，两个大 ZIP 支持远端字节读取。
 
 ## 待办
 
-- 发布 `v2.3.2` GitHub Release，并在干净 Windows 10/11 主机做最终离线安装验收。
+- 在干净 Windows 10/11 主机做最终离线安装验收。
 
 ## 下一步
 
