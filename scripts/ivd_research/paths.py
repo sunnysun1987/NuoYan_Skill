@@ -1,9 +1,13 @@
 import re
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePath
 from zoneinfo import ZoneInfo
 
 from .constants import DEFAULT_OUTPUT_ROOT_NAME
+
+
+def portable_relative_path(path: PurePath, root: PurePath) -> str:
+    return path.relative_to(root).as_posix()
 
 
 def default_output_root() -> Path:

@@ -10,6 +10,7 @@ from typing import Any
 
 from .jsonl import append_jsonl, read_json, read_jsonl
 from .models import ManualCollectionState, Material
+from .paths import portable_relative_path
 from .research_integrity import validate_retrieval_policy, validate_retrieval_target
 from .status import (
     find_duplicate_material,
@@ -196,7 +197,7 @@ def import_finding(
     text_dir.mkdir(parents=True, exist_ok=True)
     text_path = text_dir / f"{material_id}_imported.txt"
     text_path.write_text(content, encoding="utf-8")
-    relative_text = str(text_path.relative_to(task_dir))
+    relative_text = portable_relative_path(text_path, task_dir)
 
     # Build raw fields
     raw_fields: dict[str, Any] = {

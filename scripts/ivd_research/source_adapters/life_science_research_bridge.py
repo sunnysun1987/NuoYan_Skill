@@ -7,6 +7,7 @@ from typing import Any
 
 from ivd_research.jsonl import append_jsonl
 from ivd_research.models import Material, SourceRun
+from ivd_research.paths import portable_relative_path
 from ivd_research.status import (
     find_duplicate_material,
     next_material_id,
@@ -184,7 +185,7 @@ def import_life_science_findings(
         source_database_filename = safe_filename_part(finding["source_database"])
         text_path = text_dir / f"{material_id}_{source_database_filename}.txt"
         text_path.write_text(finding["result_summary"], encoding="utf-8")
-        relative_text = str(text_path.relative_to(task_dir))
+        relative_text = portable_relative_path(text_path, task_dir)
         raw_fields = {
             **finding,
             "source_site_id": "life_science_research",
