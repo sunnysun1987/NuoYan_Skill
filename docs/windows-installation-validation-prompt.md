@@ -1,6 +1,6 @@
 # 诺研 Skill 2.3.0 Windows 安装验证提示词
 
-将验证包复制到 Windows 10/11 64 位电脑，解压到不含空格和中文的短路径，例如 `C:\NuoyanValidation`。把下面整段提示词发送给 Windows 环境中的 Codex。
+从 [GitHub Releases 最新版本](https://github.com/sunnysun1987/NuoYan_Skill/releases/latest) 下载 `nuoyan-windows-offline-installer-2.3.0.zip`、`SHA256SUMS.txt` 和 `WINDOWS_VALIDATION_PROMPT.md`。把文件放到 Windows 10/11 64 位电脑，在 `C:\NuoyanValidation` 完整解压安装包，再把下面整段提示词发送给 Windows 环境中的 Codex。
 
 ## 可复制提示词
 
@@ -8,15 +8,16 @@
 请执行“诺研 Skill 2.3.0 Windows 标准环境安装验证”。你负责运行命令、保存证据并给出结论，不要让我手工输入命令。
 
 验证材料位于 C:\NuoyanValidation。先查找：
-1. nuoyan-skill-v2-2.3.0 源码目录；
+1. nuoyan-skill-v2 源码目录；
 2. SHA256SUMS.txt；
-3. packaging\windows\build-assets.ps1；
-4. install-windows.ps1；
-5. docs\windows-standard-environment.md。
+3. nuoyan-windows-standard-assets-2.3.0.zip；
+4. INSTALL_NUOYAN.cmd；
+5. nuoyan-skill-v2\install-windows.ps1；
+6. nuoyan-skill-v2\docs\windows-standard-environment.md。
 
 验证目标：
 - 确认源码包版本为 2.3.0，工作流版本为“诺研_skill-code-v2.3.0-2026-09-11”；
-- 在联网的 Windows 构建环境生成包含 Python 3.13.15、Python wheelhouse、Playwright Chromium、Argos Translate 英中模型的标准离线资产包；
+- 确认 GitHub Release 完整安装包包含 Python 3.13.15、Python wheelhouse、Playwright Chromium、Argos Translate 英中模型；
 - 在干净 Windows 10/11 64 位环境验证断网安装；
 - 确认 Argos 英中模型可实际翻译，不接受“Python 包已安装但模型缺失”；
 - 确认指标事实的中英文字段、HTML、Excel 和 Markdown 证据卡回归测试通过；
@@ -39,25 +40,22 @@
 3. 记录 Windows 版本、系统架构、PowerShell 版本、可用磁盘、Codex 版本、py -0p 输出和网络/代理状态。建议至少预留 5 GB 可用磁盘。
 4. 检查 Codex 中 Life Science Research、Browser、Chrome 插件是否安装并启用。插件缺失时记录为应用配置问题，不伪装成安装器缺陷。
 
-二、联网构建标准离线资产包
-1. 构建机需要官方 Python 3.13 及 py launcher。缺失时先报告阻塞；取得用户或 IT 确认后，只使用 python.org 官方安装器。
-2. 在源码根目录执行：
-   powershell.exe -ExecutionPolicy Bypass -File .\packaging\windows\build-assets.ps1 -OutputRoot C:\NuoyanValidation\build
-3. 确认生成：
-   C:\NuoyanValidation\build\nuoyan-windows-standard-assets-2.3.0.zip
-4. 检查 ZIP 内含：
+二、GitHub Release 安装包检查
+1. 使用 SHA256SUMS.txt 校验 `nuoyan-windows-offline-installer-2.3.0.zip`，并记录校验结果。
+2. 确认完整解压后的根目录包含 `INSTALL_NUOYAN.cmd`、`README_FIRST.md`、`nuoyan-skill-v2` 和 `nuoyan-windows-standard-assets-2.3.0.zip`。
+3. 检查标准资产 ZIP 内含：
    - manifest.standard.release.json
    - python\python-3.13.15-amd64.exe
    - python\wheelhouse.zip
    - browser\playwright-chromium.zip
    - translation\translate-en_zh.argosmodel
    - THIRD_PARTY_LICENSES.txt
-5. release manifest 必须满足：release_ready=true；每个必需资产 size>0；SHA-256 不是全零；relative_path 不越界；license、version、required、sources 字段完整。
-6. 对 ZIP 内每个资产重新计算实际大小和 SHA-256，与 release manifest 逐项比较。任一不一致即判定构建失败。
-7. 审阅 THIRD_PARTY_LICENSES.txt，单独列出尚需法务或 IT 确认的模型许可证；不要把未确认写成“可以分发”。
+4. release manifest 必须满足：release_ready=true；每个必需资产 size>0；SHA-256 不是全零；relative_path 不越界；license、version、required、sources 字段完整。
+5. 对 ZIP 内每个资产重新计算实际大小和 SHA-256，与 release manifest 逐项比较。任一不一致即判定安装包完整性失败。
+6. 审阅 THIRD_PARTY_LICENSES.txt，单独列出尚需法务或 IT 确认的模型许可证；不要把未确认写成“可以分发”。
 
 三、代码和双语指标回归
-在联网构建机的源码根目录建立独立验证虚拟环境，不使用系统级 pip --user：
+在 `C:\NuoyanValidation\nuoyan-skill-v2` 建立独立验证虚拟环境，不使用系统级 pip --user：
 1. py -3.13 -m venv .validation-venv
 2. .\.validation-venv\Scripts\python.exe -m pip install -e ".[dev,browser,pdf,translation]"
 3. .\.validation-venv\Scripts\python.exe -m pytest -q
@@ -72,9 +70,9 @@
    - scripts\tests\test_packaging.py
 
 四、干净环境断网安装
-优先使用另一台干净 Windows 10/11 电脑、干净虚拟机或 Windows Sandbox。把源码目录和标准资产 ZIP 复制进去，然后断开网络。
+优先使用另一台干净 Windows 10/11 电脑、干净虚拟机或 Windows Sandbox。把完整解压后的安装包目录复制进去，然后断开网络。确认 `INSTALL_NUOYAN.cmd` 指向包内源码目录和标准资产 ZIP；自动化记录日志时可执行其对应的 PowerShell 命令：
 1. 在源码根目录执行：
-   powershell.exe -ExecutionPolicy Bypass -File .\install-windows.ps1 -AssetBundle C:\NuoyanValidation\build\nuoyan-windows-standard-assets-2.3.0.zip
+   powershell.exe -ExecutionPolicy Bypass -File C:\NuoyanValidation\nuoyan-skill-v2\install-windows.ps1 -AssetBundle C:\NuoyanValidation\nuoyan-windows-standard-assets-2.3.0.zip
 2. 安装器结束后检查标准目录：
    %USERPROFILE%\.codex\skills\nuoyan-skill-v2
 3. 必须存在：
@@ -135,6 +133,6 @@
 
 ## 验证设备建议
 
-- 联网 Windows 构建机：生成带真实大小、SHA-256 和许可证清单的标准资产包。
+- 联网 Windows 电脑：校验 GitHub Release 文件并执行代码回归。
 - 干净 Windows 10/11 64 位电脑或虚拟机：验证没有 Git、Python、Playwright、Argos 的情况下能否依赖标准资产包完成安装。
-- 同一台电脑验证时，先生成资产包，再使用 Windows Sandbox、虚拟机快照或独立测试用户执行断网安装，避免已有环境造成假通过。
+- 同一台电脑验证时，先校验 Release 安装包，再使用 Windows Sandbox、虚拟机快照或独立测试用户执行断网安装，避免已有环境造成假通过。

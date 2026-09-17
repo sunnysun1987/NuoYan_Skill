@@ -2,7 +2,7 @@
 
 ## 适用对象
 
-本方案用于公司 Windows 电脑部署诺研 Skill。业务同事不执行命令行，不自行安装 Python 包，也不配置 API Key。首次安装、更新和环境修复由 Codex 或 IT 使用仓库根目录的 `install-windows.ps1` 完成。
+本方案用于公司 Windows 电脑部署诺研 Skill。业务同事可以从 GitHub Release 下载完整离线安装包并双击安装，不需要输入命令、不自行安装 Python 包，也不配置 API Key。环境体检未通过时，由 Codex 或 IT 根据日志完成修复。
 
 ## 结论
 
@@ -18,13 +18,14 @@
 ## V2.3.0 安装包结构
 
 - `install-windows.ps1`：轻量入口，委托给 `packaging/windows/install-windows.ps1`。
+- `INSTALL_NUOYAN.cmd`：完整离线包中的双击安装入口。
 - 标准离线资产包：Python 3.13.15 Windows 安装器、Python wheelhouse、Playwright Chromium、Argos Translate English→Chinese 模型、release manifest 和第三方许可证清单。
 - 可选扩展资产包：仅为后续明确需要 Java/Node 的控件准备；Java/Node 不属于当前诺研标准运行时，也不进入 `standard_ready` 门禁。
 - `sources.json`：可选的企业内网镜像和公网回退策略；参考 `packaging/windows/sources.example.json`。
 
 安装器固定按“本地离线资产 → 企业内网镜像 → 官方公网源”查找。每个资产必须通过 manifest 中的大小和 SHA-256 校验。离线资产损坏时不会静默使用；安装器会删除无效下载缓存、尝试下一来源，全部失败后停止并指出缺失项。
 
-仓库不提交数百 MB 的二进制运行时。IT 在批准的 Windows 构建机运行 `packaging\windows\build-assets.ps1` 生成可通过 U 盘、企业文件共享或软件分发平台交付的标准 ZIP，因此终端用户不需要从 GitHub 下载。
+仓库不提交数百 MB 的二进制运行时。`v2.3.0` 标签触发 GitHub Actions 在 Windows 环境构建和发布标准资产包、源码包、校验文件与完整离线安装包。企业也可以在批准的 Windows 构建机运行 `packaging\windows\build-assets.ps1`，通过内网镜像、U 盘、企业文件共享或软件分发平台交付相同资产。
 
 ## IT 前置条件
 
@@ -39,13 +40,17 @@
 
 ## 给业务同事的使用方式
 
+打开 [GitHub Releases 最新版本](https://github.com/sunnysun1987/NuoYan_Skill/releases/latest)，下载 `nuoyan-windows-offline-installer-2.3.0.zip`。完整解压后双击 `INSTALL_NUOYAN.cmd`，等待安装和体检完成。安装包内已包含 Skill 源码、Python 3.13、Python 依赖、Playwright Chromium 和 Argos 英中模型，不要求电脑预装 Git、Python、Node 或 Java。
+
+安装完成后，在 Codex 插件管理中启用 Life Science Research、Browser、Chrome 并重启 Codex。命令窗口退出码为 0 且体检 JSON 中 `standard_ready=true`，才表示标准调研环境可用。体检失败时保留完整窗口内容并交给 Codex 或 IT。
+
 业务同事在 Codex 中发送以下提示词，不需要打开 PowerShell：
 
 > 请检查并更新本机的诺研 Skill 标准调研环境。请由你运行安装目录中的 install-windows.ps1，完成代码更新、专用虚拟环境、Playwright Chromium、PDF 和离线英中翻译组件检查，再运行标准环境严格体检。不要让我执行命令行。若 Codex 插件需要我在应用内启用，请明确告诉我插件名称和重启步骤；体检通过后再开始调研。
 
 正式调研时仍使用自然语言提出业务课题。Codex 负责调用内部 CLI、生成调研文件并说明证据缺口，业务同事不直接操作 `nuoyan` 命令。
 
-## IT 安装与更新
+## IT 构建与高级部署
 
 先在批准的 Windows 构建机生成标准离线资产包：
 

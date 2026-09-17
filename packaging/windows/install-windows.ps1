@@ -242,6 +242,10 @@ if ($ResolvedAssets.ContainsKey("python-wheelhouse")) {
     Expand-Archive -LiteralPath $ResolvedAssets["python-wheelhouse"].path -DestinationPath $Wheelhouse -Force
     Invoke-Native $VenvPython @(
         "-m", "pip", "install", "--no-index", "--find-links", $Wheelhouse,
+        "setuptools>=68", "wheel"
+    )
+    Invoke-Native $VenvPython @(
+        "-m", "pip", "install", "--no-index", "--find-links", $Wheelhouse,
         "--no-build-isolation", "--editable", "${ResolvedInstallRoot}[browser,pdf,translation]"
     )
 }

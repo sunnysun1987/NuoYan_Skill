@@ -6,6 +6,14 @@ Skill name policy: the Codex loading ID is fixed as `nuoyan-skill-v2`. Keep it l
 
 ## Install
 
+### Windows 10/11
+
+Open the [latest GitHub Release](https://github.com/sunnysun1987/NuoYan_Skill/releases/latest), download `nuoyan-windows-offline-installer-2.3.0.zip`, fully extract it, and double-click `INSTALL_NUOYAN.cmd`. The package installs the Skill, its private Python 3.13 environment, PDF dependencies, Playwright Chromium and the Argos English-to-Chinese model. Git, Python, Node and Java do not need to be preinstalled.
+
+After installation, enable Life Science Research, Browser and Chrome in the Codex plugin manager, restart Codex, and keep the command-window output if the strict environment check does not reach `standard_ready=true`. Detailed instructions are in [Windows 标准调研环境安装与使用](docs/windows-standard-environment.md).
+
+### macOS, Linux and source installs
+
 Clone this repository into a Codex skills directory, then restart Codex so the skill can be discovered.
 
 ```bash
@@ -32,9 +40,9 @@ python3 -m pip install -e ".[browser,pdf,ocr,dev]"
 
 Windows business workstations should not reuse an arbitrary system Python environment. V2.3.0 provides an offline-first C-strategy installer: it resolves verified assets from an adjacent standard asset bundle, then an IT-managed mirror, then approved public sources. The standard bundle covers Python 3.13, the Windows wheelhouse, Playwright Chromium and the Argos English-to-Chinese model. Java and Node remain optional extension assets because the current runtime does not call them.
 
-IT or Codex runs `install-windows.ps1`, which installs the skill at `%USERPROFILE%\.codex\skills\nuoyan-skill-v2`, creates a private `.venv`, records asset source/version/SHA-256 in `.nuoyan\install-state.json`, and runs the strict standard-environment doctor. A release bundle is built on Windows with `packaging\windows\build-assets.ps1`; large binary assets are release artifacts and are not committed to Git.
+`INSTALL_NUOYAN.cmd` calls `install-windows.ps1`, installs the skill at `%USERPROFILE%\.codex\skills\nuoyan-skill-v2`, creates a private `.venv`, records asset source/version/SHA-256 in `.nuoyan\install-state.json`, and runs the strict standard-environment doctor. GitHub Actions builds the verified release bundle on Windows from `packaging\windows\build-assets.ps1`; large binary assets are GitHub Release artifacts and are not committed to Git.
 
-Business users do not run shell commands. Give Codex the copyable Chinese request and follow the app-plugin steps in [Windows 标准调研环境安装与使用](docs/windows-standard-environment.md).
+Business users can download and launch the installer themselves without entering shell commands. Codex or IT handles failed environment checks and follows the app-plugin steps in [Windows 标准调研环境安装与使用](docs/windows-standard-environment.md).
 
 ## Quick Check
 
