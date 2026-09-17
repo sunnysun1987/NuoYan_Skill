@@ -41,10 +41,23 @@ jobs:
           }
 
       - name: Install test dependencies
-        run: python -m pip install -e ".[dev]"
+        run: python -m pip install "setuptools>=68" wheel -e ".[dev]"
 
       - name: Run tests
-        run: python -m pytest
+        shell: pwsh
+        run: |
+          python -m pytest --junitxml=pytest-results.xml
+          $TestExitCode = $LASTEXITCODE
+          "## Windows pytest" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          "Exit code: $TestExitCode" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          if (Test-Path .\pytest-results.xml) {
+            $FailedTests = Select-Xml -Path .\pytest-results.xml -XPath "//testcase[failure or error]"
+            foreach ($Failure in $FailedTests) {
+              $Name = "$($Failure.Node.classname)::$($Failure.Node.name)"
+              "- $Name" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+            }
+          }
+          exit $TestExitCode
 
       - name: Run Ruff
         run: python -m ruff check scripts/
