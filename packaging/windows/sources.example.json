@@ -1,5 +1,5 @@
 {
-  "mirror_base_url": "https://packages.example.internal/nuoyan/2.3.0",
-  "public_release_base_url": "https://github.com/sunnysun1987/NuoYan_Skill/releases/download/v2.3.0",
+  "mirror_base_url": "https://packages.example.internal/nuoyan/2.3.1",
+  "public_release_base_url": "https://github.com/sunnysun1987/NuoYan_Skill/releases/download/v2.3.1",
   "allow_public_fallback": true
 }

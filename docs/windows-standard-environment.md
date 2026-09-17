@@ -15,7 +15,7 @@
 
 开发电脑通常已经具备其中多数工具，因此只更新 Skill 也可能正常运行；业务电脑缺少这些组件时，Codex 会退化为聊天式调研，无法稳定执行标准流水线。这是两类电脑表现不一致的主要环境原因。
 
-## V2.3.0 安装包结构
+## V2.3.1 安装包结构
 
 - `install-windows.ps1`：轻量入口，委托给 `packaging/windows/install-windows.ps1`。
 - `INSTALL_NUOYAN.cmd`：完整离线包中的双击安装入口。
@@ -25,7 +25,7 @@
 
 安装器固定按“本地离线资产 → 企业内网镜像 → 官方公网源”查找。每个资产必须通过 manifest 中的大小和 SHA-256 校验。离线资产损坏时不会静默使用；安装器会删除无效下载缓存、尝试下一来源，全部失败后停止并指出缺失项。
 
-仓库不提交数百 MB 的二进制运行时。`v2.3.0` 标签触发 GitHub Actions 在 Windows 环境构建和发布标准资产包、源码包、校验文件与完整离线安装包。企业也可以在批准的 Windows 构建机运行 `packaging\windows\build-assets.ps1`，通过内网镜像、U 盘、企业文件共享或软件分发平台交付相同资产。
+仓库不提交数百 MB 的二进制运行时。`v2.3.1` 标签触发 GitHub Actions 在 Windows 环境构建和发布标准资产包、源码包、校验文件与完整离线安装包。企业也可以在批准的 Windows 构建机运行 `packaging\windows\build-assets.ps1`，通过内网镜像、U 盘、企业文件共享或软件分发平台交付相同资产。
 
 ## IT 前置条件
 
@@ -40,7 +40,7 @@
 
 ## 给业务同事的使用方式
 
-打开 [GitHub Releases 最新版本](https://github.com/sunnysun1987/NuoYan_Skill/releases/latest)，下载 `nuoyan-windows-offline-installer-2.3.0.zip`。完整解压后双击 `INSTALL_NUOYAN.cmd`，等待安装和体检完成。安装包内已包含 Skill 源码、Python 3.13、Python 依赖、Playwright Chromium 和 Argos 英中模型，不要求电脑预装 Git、Python、Node 或 Java。
+打开 [GitHub Releases 最新版本](https://github.com/sunnysun1987/NuoYan_Skill/releases/latest)，下载 `nuoyan-windows-offline-installer-2.3.1.zip`。完整解压后双击 `INSTALL_NUOYAN.cmd`，等待安装和体检完成。安装包内已包含 Skill 源码、Python 3.13、Python 依赖、Playwright Chromium 和 Argos 英中模型，不要求电脑预装 Git、Python、Node 或 Java。
 
 安装完成后，在 Codex 插件管理中启用 Life Science Research、Browser、Chrome 并重启 Codex。命令窗口退出码为 0 且体检 JSON 中 `standard_ready=true`，才表示标准调研环境可用。体检失败时保留完整窗口内容并交给 Codex 或 IT。
 
@@ -58,13 +58,13 @@
 powershell.exe -ExecutionPolicy Bypass -File .\packaging\windows\build-assets.ps1
 ```
 
-构建完成后，必须审阅 release manifest、实际文件大小、SHA-256 和 `THIRD_PARTY_LICENSES.txt`，再把 `nuoyan-windows-standard-assets-2.3.0.zip` 与 Skill 源码包一起交付。模板 manifest 的 `release_ready=false` 和全零哈希不能用于正式安装。
+构建完成后，必须审阅 release manifest、实际文件大小、SHA-256 和 `THIRD_PARTY_LICENSES.txt`，再把 `nuoyan-windows-standard-assets-2.3.1.zip` 与 Skill 源码包一起交付。模板 manifest 的 `release_ready=false` 和全零哈希不能用于正式安装。
 
 在业务电脑执行离线安装：
 
 ```powershell
 powershell.exe -ExecutionPolicy Bypass -File .\install-windows.ps1 `
-  -AssetBundle .\nuoyan-windows-standard-assets-2.3.0.zip
+  -AssetBundle .\nuoyan-windows-standard-assets-2.3.1.zip
 ```
 
 如本地包不完整，可以配置企业镜像并允许或禁止公网回退：
@@ -105,7 +105,7 @@ powershell.exe -ExecutionPolicy Bypass -File .\install-windows.ps1 -VerifyOnly
 | 失败项 | 含义 | 处理责任 |
 | --- | --- | --- |
 | `runtime_source` | 当前命令加载的不是标准安装目录，或包版本与工作流版本不一致 | IT 重新运行安装脚本，检查旧 PATH/旧包 |
-| `windows_install_state` | 未找到有效 manifest 版本、资产来源或安装记录 | IT 使用 V2.3.0 标准包重新安装并保留 JSON |
+| `windows_install_state` | 未找到有效 manifest 版本、资产来源或安装记录 | IT 使用 V2.3.1 标准包重新安装并保留 JSON |
 | `distribution_conflict` | 旧版包仍占用 `ivd_research` 命名空间 | IT 删除旧虚拟环境并重建，不在系统 Python 混装 |
 | `playwright_browser` | Python 包存在，但 Chromium 未安装或无法启动 | IT 检查下载、终端安全软件和执行权限 |
 | `translation_engine` | Argos 包或 English→Chinese 模型缺失 | IT 允许模型下载或导入批准的离线模型 |

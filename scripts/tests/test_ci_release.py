@@ -20,7 +20,7 @@ def test_release_workflow_builds_and_publishes_windows_downloads():
 
     assert "contents: write" in workflow
     assert "windows-latest" in workflow
-    assert "codex/v2.3.0-release" in workflow
+    assert "codex/v2.3.1-release" in workflow
     assert 'python-version: "3.13"' in workflow
     assert "name: Run tests" in workflow
     assert "name: Run Ruff" in workflow

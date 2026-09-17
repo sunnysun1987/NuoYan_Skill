@@ -284,7 +284,7 @@ def _windows_install_state_check(home: Path) -> dict:
         "impact_zh": (
             "Windows 标准资产已按 manifest 安装并留存来源与校验记录。"
             if ok
-            else "缺少有效的 Windows 安装状态；需使用 2.3.0 安装器完成资产校验和安装。"
+            else "缺少有效的 Windows 安装状态；需使用 2.3.1 安装器完成资产校验和安装。"
         ),
         "details": {
             "state_path": str(state_path),

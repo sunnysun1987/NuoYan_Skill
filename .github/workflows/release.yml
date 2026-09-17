@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     branches:
-      - codex/v2.3.0-release
+      - codex/v2.3.1-release
     tags:
       - "v*"
 

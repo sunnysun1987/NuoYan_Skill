@@ -105,7 +105,7 @@ def test_release_bundle_has_double_click_launcher_and_user_instructions():
     guide = OFFLINE_README.read_text(encoding="utf-8")
 
     assert "install-windows.ps1" in launcher
-    assert "nuoyan-windows-standard-assets-2.3.0.zip" in launcher
+    assert "nuoyan-windows-standard-assets-2.3.1.zip" in launcher
     assert "ExecutionPolicy Bypass" in launcher
     assert "双击" in guide
     assert "INSTALL_NUOYAN.cmd" in guide
@@ -115,10 +115,10 @@ def test_release_bundle_has_double_click_launcher_and_user_instructions():
 def test_windows_validation_prompt_targets_the_github_release_bundle():
     prompt = VALIDATION_PROMPT.read_text(encoding="utf-8")
 
-    assert "nuoyan-windows-offline-installer-2.3.0.zip" in prompt
+    assert "nuoyan-windows-offline-installer-2.3.1.zip" in prompt
     assert "INSTALL_NUOYAN.cmd" in prompt
     assert "nuoyan-skill-v2 源码目录" in prompt
-    assert "nuoyan-skill-v2-2.3.0 源码目录" not in prompt
+    assert "nuoyan-skill-v2-2.3.1 源码目录" not in prompt
 
 
 def test_windows_runtime_is_documented_for_agent_not_business_user():
@@ -141,8 +141,8 @@ def test_windows_users_are_directed_to_the_github_offline_installer():
     release_url = "https://github.com/sunnysun1987/NuoYan_Skill/releases/latest"
     assert release_url in readme
     assert release_url in guide
-    assert "nuoyan-windows-offline-installer-2.3.0.zip" in readme
-    assert "nuoyan-windows-offline-installer-2.3.0.zip" in guide
+    assert "nuoyan-windows-offline-installer-2.3.1.zip" in readme
+    assert "nuoyan-windows-offline-installer-2.3.1.zip" in guide
     assert "INSTALL_NUOYAN.cmd" in readme
     assert "INSTALL_NUOYAN.cmd" in guide
     assert "终端用户不需要从 GitHub 下载" not in guide
@@ -157,9 +157,9 @@ def test_windows_environment_release_has_distinct_version():
         encoding="utf-8"
     )
 
-    assert project["project"]["version"] == "2.3.0"
-    assert "v2.3.0" in WORKFLOW_VERSION
-    assert "V2.3.0" in readme
+    assert project["project"]["version"] == "2.3.1"
+    assert "v2.3.1" in WORKFLOW_VERSION
+    assert "V2.3.1" in readme
     assert "本地离线资产" in skill
     assert "指标事实" in skill and "中英文" in skill
     assert "标准离线资产包" in guide
